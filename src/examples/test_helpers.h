@@ -52,9 +52,11 @@ void encode_data(
     }
 
     // terminate tail at state 0
-    {
+    for (size_t i = 0u; i < total_tail_bits; ) {
+        const size_t total_bits = min(total_tail_bits-i, size_t(8u));
         enc->consume_byte(0x00, y.data());
-        push_symbols(y.data(), total_tail_bits*R);
+        push_symbols(y.data(), total_bits*R);
+        i += total_bits;
     }
 
     assert(curr_output_symbol == total_output_symbols);
