@@ -28,6 +28,8 @@ public:
         assert(R > 1u);
     }
 
+    virtual ~ViterbiDecoder() = default;
+
     // Traceback length doesn't include tail bits
     virtual void set_traceback_length(const size_t traceback_length) = 0;
     virtual size_t get_traceback_length() const = 0;

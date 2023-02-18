@@ -15,6 +15,8 @@ public:
 
     }
 
+    virtual ~ConvolutionalEncoder() = default;
+
     virtual void reset() = 0;
 
     // Output R bytes for each input byte
