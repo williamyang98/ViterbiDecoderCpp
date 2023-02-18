@@ -130,6 +130,11 @@ public:
         return renormalisation_bias + absolute_error_t(normalised_error);
     }
 
+    // NOTE: We expect the symbol values to be in the range set by the branch_table
+    //       symbols[i] ∈ [soft_decision_low, soft_decision_high]
+    //       Otherwise when we calculate inside bfly(...):
+    //           m_total_error = soft_decision_max_error - total_error
+    //       The resulting value could underflow with unsigned error types 
     virtual void update(const soft_t* symbols, const size_t N) {
         // number of symbols must be a multiple of the code rate
         assert(N % R == 0);

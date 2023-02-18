@@ -271,6 +271,7 @@ void run_test(
     if (noise_level > 0) {
         add_noise(output_symbols.data(), output_symbols.size(), int16_t(noise_level));
     }
+    clamp_vector(output_symbols.data(), output_symbols.size(), SOFT_DECISION_LOW, SOFT_DECISION_HIGH);
 
     const size_t total_output_symbols = output_symbols.size();
     vitdec->reset();
