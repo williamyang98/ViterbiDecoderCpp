@@ -46,6 +46,7 @@ The 16bit and 8bit scalar decoders take similar amounts of time. This means we c
 
 ## Setup
 - <code>./run_benchmark.exe -c \<id\> -M \<mode\> -L \<input_length\> -T \<total_runs\></code>
+- Benchmark was executed on an Intel i5-7200U connected to battery power and kept at 3.1GHz.
 - 16bit performance was measured with soft decision decoding
 -  8bit performance was measured with hard decision decoding
 - The code that is executed in the same with soft and hard decision decoding. Only the soft decision values and renormalisation threshold are different.
@@ -84,6 +85,7 @@ The 16bit and 8bit scalar decoders take similar amounts of time. This means we c
 - Both the 16bit and 8bit codes perform better when the contraint length increases
 - The 8bit AVX code doesn't scale as well as the 16bit AVX code relative to its SSE counterpart.
 - Even with the substandard scaling of 8bit AVX it is still a major speedup.
+- Running this code on newer CPUs indicates greater performance gains when using SSE or AVX vectorisation for both 8bit and 16bit.
 
 # Additional notes
 - The implementations check if the parameters are valid using assert statements. This is for performance reasons as you usually use known parameters. You will need to add your own runtime checks if you are compiling without asserts.
