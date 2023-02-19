@@ -29,11 +29,9 @@ You can port the x86 intrinsics implementation to ARM processors since the vecto
 
 # Custom modifications
 The library uses helper classes which can be replaced with your changes. These include:
-- Bit count table 
 - Parity check table
 - Aligned malloc wrapper
 - Basic functions like min/max/clamp
-
 
 # Benchmarks
 Benchmarks were run using <code>run_benchmarks.cpp</code>.
@@ -94,7 +92,6 @@ The 16bit and 8bit scalar decoders take similar amounts of time. This means we c
     - Using saturated arithmetic in vectorised code to prevent unwanted overflows/underflows. This incurs up to a 33% speed penalty due to CPI increasing from 0.33 to 0.5 when moving from modular arithmetic.
     - Keeping track of absolute error by accumulating bias adjustments when renormalising.
     - Dynamic allocation for branch table and error metrics using runtime parameters.
-    - Virtual functions for runtime substitution of scalar or SIMD decoders.
 - Unsigned 8bit error metrics have severe limitations. These include:
     - Limited range of soft decision values to avoid overflowing past the renormalisation threshold.
     - Higher code rates (such as Cassini) will quickly reach the renormalisation threshold and deteriorate in accuracy. This is because the maximum error for each branch is a multiple of the code rate.

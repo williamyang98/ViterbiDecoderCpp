@@ -5,7 +5,7 @@
  * see http://www.gnu.org/copyleft/lgpl.html
  */
 #pragma once
-#include "viterbi_decoder_scalar.h"
+#include "viterbi_decoder_core.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <assert.h>
@@ -17,7 +17,7 @@
 //     16 way vectorisation from 128bits/8bits 
 //     32bit decision type since 16 x 2 decisions bits per branch
 template <typename absolute_error_t = uint64_t>
-class ViterbiDecoder_SSE_u8: public ViterbiDecoder_Scalar<uint8_t, int8_t, uint32_t, absolute_error_t>
+class ViterbiDecoder_SSE_u8: public ViterbiDecoder_Core<uint8_t, int8_t, uint32_t, absolute_error_t>
 {
 public:
     static constexpr size_t ALIGN_AMOUNT = sizeof(__m128i);
@@ -31,7 +31,7 @@ public:
     // NOTE: branch_table.K >= 6 and branch_table.alignment >= 16  
     template <typename ... U>
     ViterbiDecoder_SSE_u8(U&& ... args)
-    :   ViterbiDecoder_Scalar(std::forward<U>(args)...),
+    :   ViterbiDecoder_Core(std::forward<U>(args)...),
         // metric:       NUMSTATES   * sizeof(u8)                       = NUMSTATES
         // branch_table: NUMSTATES/2 * sizeof(s8)                       = NUMSTATES/2 
         // decision:     NUMSTATES/DECISION_BITSIZE * DECISION_BYTESIZE = NUMSTATES/8
@@ -46,8 +46,8 @@ public:
     {
         assert(K >= K_min);
         // Metrics must meet alignment requirements
-        assert((NUMSTATES * sizeof(uint8_t)) % ALIGN_AMOUNT == 0);
-        assert((NUMSTATES * sizeof(uint8_t)) >= ALIGN_AMOUNT);
+        assert((METRIC_LENGTH * sizeof(uint8_t)) % ALIGN_AMOUNT == 0);
+        assert((METRIC_LENGTH * sizeof(uint8_t)) >= ALIGN_AMOUNT);
         // Branch table must be meet alignment requirements 
         assert(branch_table.alignment % ALIGN_AMOUNT == 0);
         assert(branch_table.alignment >= ALIGN_AMOUNT);
@@ -55,7 +55,8 @@ public:
         assert(((uintptr_t)m128_symbols.data() % ALIGN_AMOUNT) == 0);
     }
 
-    virtual void update(const int8_t* symbols, const size_t N) {
+    inline
+    void update(const int8_t* symbols, const size_t N) {
         // number of symbols must be a multiple of the code rate
         assert(N % R == 0);
         const size_t total_decoded_bits = N / R;
@@ -65,9 +66,9 @@ public:
             auto* decision = get_decision(curr_decoded_bit);
             auto* old_metric = get_old_metric();
             auto* new_metric = get_new_metric();
-            simd_bfly(&symbols[s], decision, old_metric, new_metric);
+            bfly(&symbols[s], decision, old_metric, new_metric);
             if (new_metric[0] >= config.renormalisation_threshold) {
-                simd_renormalise(new_metric);
+                renormalise(new_metric);
             }
             swap_metrics();
             curr_decoded_bit++;
@@ -75,7 +76,7 @@ public:
     }
 private:
     inline
-    void simd_bfly(const int8_t* symbols, uint32_t* decision, uint8_t* old_metric, uint8_t* new_metric) 
+    void bfly(const int8_t* symbols, uint32_t* decision, uint8_t* old_metric, uint8_t* new_metric) 
     {
         const __m128i* m128_branch_table = reinterpret_cast<const __m128i*>(branch_table.data());
         __m128i* m128_old_metric = reinterpret_cast<__m128i*>(old_metric);
@@ -123,7 +124,7 @@ private:
     }
 
     inline
-    void simd_renormalise(uint8_t* metric) {
+    void renormalise(uint8_t* metric) {
         assert(((uintptr_t)metric % ALIGN_AMOUNT) == 0);
         __m128i* m128_metric = reinterpret_cast<__m128i*>(metric);
 

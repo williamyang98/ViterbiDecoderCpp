@@ -42,9 +42,9 @@ void init_test(
     const size_t total_runs
 );
 
-template <typename soft_t>
+template <typename soft_t, class T>
 TestResults run_test(
-    ViterbiDecoder<soft_t>* vitdec, 
+    T& vitdec, 
     const soft_t* symbols, const size_t total_symbols, 
     const uint8_t* in_bytes, uint8_t* out_bytes, const size_t total_input_bytes,
     const size_t total_runs
@@ -350,15 +350,14 @@ void init_test(
     TestResults test_scalar, test_simd_sse, test_simd_avx;
     printf("Starting total_runs=%zu\n", total_runs);
     if (decode_type >= DecodeType::SCALAR) {
-        auto* vitdec = factory_t::get_scalar(branch_table, config);
-        vitdec->set_traceback_length(total_input_bits);
+        auto vitdec = factory_t::get_scalar(branch_table, config);
+        vitdec.set_traceback_length(total_input_bits);
         test_scalar = run_test(
             vitdec, 
             output_symbols.data(), output_symbols.size(), 
             tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
             total_runs
         );
-        delete vitdec;
 
         printf("> Scalar results\n");
         printf("us_reset     = %.2f\n", test_scalar.us_reset);
@@ -371,15 +370,14 @@ void init_test(
     }
 
     if (decode_type >= DecodeType::SIMD_SSE) {
-        auto* vitdec = factory_t::get_simd_sse(branch_table, config);
-        vitdec->set_traceback_length(total_input_bits);
+        auto vitdec = factory_t::get_simd_sse(branch_table, config);
+        vitdec.set_traceback_length(total_input_bits);
         test_simd_sse = run_test(
             vitdec, 
             output_symbols.data(), output_symbols.size(), 
             tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
             total_runs
         );
-        delete vitdec;
 
         printf("> SIMD_SSE results\n");
         printf("us_reset     = %.2f (x%.2f)\n", test_simd_sse.us_reset, test_scalar.us_reset/test_simd_sse.us_reset);
@@ -392,15 +390,14 @@ void init_test(
     }
 
     if (decode_type >= DecodeType::SIMD_AVX) {
-        auto* vitdec = factory_t::get_simd_avx(branch_table, config);
-        vitdec->set_traceback_length(total_input_bits);
+        auto vitdec = factory_t::get_simd_avx(branch_table, config);
+        vitdec.set_traceback_length(total_input_bits);
         test_simd_avx = run_test(
             vitdec, 
             output_symbols.data(), output_symbols.size(), 
             tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
             total_runs
         );
-        delete vitdec;
 
         printf("> SIMD_AVX results\n");
         printf("us_reset     = %.2f (x%.2f)\n", test_simd_avx.us_reset, test_scalar.us_reset/test_simd_avx.us_reset);
@@ -413,9 +410,9 @@ void init_test(
     }
 }
 
-template <typename soft_t>
+template <typename soft_t, class T>
 TestResults run_test(
-    ViterbiDecoder<soft_t>* vitdec, 
+    T& vitdec, 
     const soft_t* symbols, const size_t total_symbols, 
     const uint8_t* in_bytes, uint8_t* out_bytes, const size_t total_input_bytes,
     const size_t total_runs
@@ -430,17 +427,17 @@ TestResults run_test(
         }
         {
             Timer t;
-            vitdec->reset();
+            vitdec.reset();
             results.us_reset += float(t.get_delta());
         }
         {
             Timer t;
-            vitdec->update(symbols, total_symbols);
+            vitdec.update(symbols, total_symbols);
             results.us_update += float(t.get_delta());
         }
         {
             Timer t;
-            const uint64_t error = vitdec->chainback(out_bytes, total_input_bits, 0u);
+            const uint64_t error = vitdec.chainback(out_bytes, total_input_bits, 0u);
             results.total_error += error;
             results.us_chainback += float(t.get_delta());
         }

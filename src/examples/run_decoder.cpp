@@ -30,9 +30,9 @@ void init_test(
     const size_t total_input_bytes 
 );
 
-template <typename soft_t>
+template <typename soft_t, class T>
 void run_test(
-    ViterbiDecoder<soft_t, uint64_t>* vitdec, 
+    T& vitdec, 
     ConvolutionalEncoder* enc, 
     const size_t noise_level,
     const bool is_soft_noise,
@@ -319,10 +319,8 @@ void init_test(
 
     printf("Using '%s': K=%zu, R=%zu\n", name, K, R);
 
-    ViterbiDecoder<soft_t>* vitdec = NULL;
-    ConvolutionalEncoder* enc = NULL;
-
     // Decide appropriate convolutional encoder
+    ConvolutionalEncoder* enc = NULL;
     if (K >= K_max_lookup) {
         printf(
             "Using shift register encoder due to large K (%zu >= %zu)\n",
@@ -351,19 +349,37 @@ void init_test(
     case DecodeType::SCALAR:
         {
             printf("Using SCALAR decoder\n");
-            vitdec = factory_t::get_scalar(branch_table, config);
+            auto vitdec = factory_t::get_scalar(branch_table, config);
+            run_test(
+                vitdec, enc, 
+                noise_level, is_soft_noise, 
+                total_input_bytes, 
+                soft_decision_high, soft_decision_low
+            );
         }
         break;
     case DecodeType::SIMD_SSE:
         {
             printf("Using SIMD_SSE with alignment=%zu\n", simd_alignment);
-            vitdec = factory_t::get_simd_sse(branch_table, config);
+            auto vitdec = factory_t::get_simd_sse(branch_table, config);
+            run_test(
+                vitdec, enc, 
+                noise_level, is_soft_noise, 
+                total_input_bytes, 
+                soft_decision_high, soft_decision_low
+            );
         }
         break;
     case DecodeType::SIMD_AVX:
         {
             printf("Using SIMD_AVX with alignment=%zu\n", simd_alignment);
-            vitdec = factory_t::get_simd_avx(branch_table, config);
+            auto vitdec = factory_t::get_simd_avx(branch_table, config);
+            run_test(
+                vitdec, enc, 
+                noise_level, is_soft_noise, 
+                total_input_bytes, 
+                soft_decision_high, soft_decision_low
+            );
         }
         break;
     default:
@@ -372,20 +388,12 @@ void init_test(
         break;
     }
 
-    run_test<soft_t>(
-        vitdec, enc, 
-        noise_level, is_soft_noise, 
-        total_input_bytes, 
-        soft_decision_high, soft_decision_low
-    );
-
-    delete vitdec;
     delete enc;
 }
 
-template <typename soft_t>
+template <typename soft_t, class T>
 void run_test(
-    ViterbiDecoder<soft_t, uint64_t>* vitdec, 
+    T& vitdec, 
     ConvolutionalEncoder* enc, 
     const size_t noise_level,
     const bool is_soft_noise,
@@ -393,12 +401,12 @@ void run_test(
     const soft_t soft_decision_high,
     const soft_t soft_decision_low
 ) {
-    assert(vitdec->K == enc->K);
-    assert(vitdec->R == enc->R);
-    const size_t K = vitdec->K; 
-    const size_t R = vitdec->R; 
+    assert(vitdec.K == enc->K);
+    assert(vitdec.R == enc->R);
+    const size_t K = vitdec.K; 
+    const size_t R = vitdec.R; 
     const size_t total_input_bits = total_input_bytes*8u;
-    vitdec->set_traceback_length(total_input_bits);
+    vitdec.set_traceback_length(total_input_bits);
 
     // Generate test data
     std::vector<uint8_t> tx_input_bytes;
@@ -421,9 +429,9 @@ void run_test(
     }
 
     const size_t total_output_symbols = output_symbols.size();
-    vitdec->reset();
-    vitdec->update(output_symbols.data(), total_output_symbols);
-    const uint64_t error = vitdec->chainback(rx_input_bytes.data(), total_input_bits, 0u);
+    vitdec.reset();
+    vitdec.update(output_symbols.data(), total_output_symbols);
+    const uint64_t error = vitdec.chainback(rx_input_bytes.data(), total_input_bits, 0u);
     printf("error=%zu\n", error);
 
     // Show decoding results
