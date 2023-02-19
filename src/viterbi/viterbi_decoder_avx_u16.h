@@ -13,14 +13,15 @@
 #include <immintrin.h>
 
 // Vectorisation using AVX
-// 16bit integers for errors, soft-decision values
-// 32bit integer for packing decision bits
-// TODO: Refer to vitdec_sse.h for possible improvements using signed modular arithmetic instead of unsigned saturation arithmetic
+//     16bit integers for errors, soft-decision values
+//     16 way vectorisation from 256bits/16bits 
+//     32bit decision type since 16 x 2 decisions bits per branch
 template <typename absolute_error_t = uint64_t>
-class ViterbiDecoder_AVX: public ViterbiDecoder_Scalar<uint16_t, int16_t, uint32_t, absolute_error_t>
+class ViterbiDecoder_AVX_u16: public ViterbiDecoder_Scalar<uint16_t, int16_t, uint32_t, absolute_error_t>
 {
 public:
     static constexpr size_t ALIGN_AMOUNT = sizeof(__m256i);
+    static constexpr size_t K_min = 6;
 private:
     const size_t m256_width_metric;
     const size_t m256_width_branch_table;
@@ -28,20 +29,22 @@ private:
     std::vector<__m256i> m256_symbols;
 public:
     // NOTE: branch_table.K >= 6 and branch_table.alignment >= 32  
-    ViterbiDecoder_AVX(const ViterbiBranchTable<int16_t>& _branch_table)
-    :   ViterbiDecoder_Scalar(_branch_table),
-        // metric:       NUMSTATES   * sizeof(u16) = NUMSTATES*2
-        // branch_table: NUMSTATES/2 * sizeof(s16) = NUMSTATES  
+    template <typename ... U>
+    ViterbiDecoder_AVX_u16(U&& ... args)
+    :   ViterbiDecoder_Scalar(std::forward<U>(args)...),
+        // metric:       NUMSTATES   * sizeof(u16)                      = NUMSTATES*2
+        // branch_table: NUMSTATES/2 * sizeof(s16)                      = NUMSTATES  
         // decision:     NUMSTATES/DECISION_BITSIZE * DECISION_BYTESIZE = NUMSTATES/8
         // 
-        // m256_metric_width:       NUMSTATES / sizeof(__m256i) = NUMSTATES/16
-        // m256_branch_table_width: NUMSTATES / sizeof(__m256i) = NUMSTATES/32
-        // u32_decision_width:      NUMSTATES/8 / sizeof(u32)   = NUMSTATES/32
+        // m256_metric_width:       NUMSTATES*2 / sizeof(__m256i) = NUMSTATES/16
+        // m256_branch_table_width: NUMSTATES   / sizeof(__m256i) = NUMSTATES/32
+        // u32_decision_width:      NUMSTATES/8 / sizeof(u32)     = NUMSTATES/32
         m256_width_metric(NUMSTATES/ALIGN_AMOUNT*2u),
         m256_width_branch_table(NUMSTATES/ALIGN_AMOUNT),
         u32_width_decision(NUMSTATES/ALIGN_AMOUNT),
         m256_symbols(R)
     {
+        assert(K >= K_min);
         // Metrics must meet alignment requirements
         assert((NUMSTATES * sizeof(uint16_t)) % ALIGN_AMOUNT == 0);
         assert((NUMSTATES * sizeof(uint16_t)) >= ALIGN_AMOUNT);
@@ -63,7 +66,7 @@ public:
             auto* old_metric = get_old_metric();
             auto* new_metric = get_new_metric();
             simd_bfly(&symbols[s], decision, old_metric, new_metric);
-            if (new_metric[0] >= RENORMALISATION_THRESHOLD) {
+            if (new_metric[0] >= config.renormalisation_threshold) {
                 simd_renormalise(new_metric);
             }
             swap_metrics();
@@ -77,18 +80,16 @@ private:
         const __m256i* m256_branch_table = reinterpret_cast<const __m256i*>(branch_table.data());
         __m256i* m256_old_metric = reinterpret_cast<__m256i*>(old_metric);
         __m256i* m256_new_metric = reinterpret_cast<__m256i*>(new_metric);
-        __m128i* m128_new_metric = reinterpret_cast<__m128i*>(new_metric);
 
         assert(((uintptr_t)m256_branch_table % ALIGN_AMOUNT) == 0);
         assert(((uintptr_t)m256_old_metric % ALIGN_AMOUNT) == 0);
         assert(((uintptr_t)m256_new_metric % ALIGN_AMOUNT) == 0);
-        assert(((uintptr_t)m128_new_metric % ALIGN_AMOUNT) == 0);
 
         // Vectorise constants
         for (size_t i = 0; i < R; i++) {
             m256_symbols[i] = _mm256_set1_epi16(symbols[i]);
         }
-        const __m256i max_error = _mm256_set1_epi16(soft_decision_max_error);
+        const __m256i max_error = _mm256_set1_epi16(config.soft_decision_max_error);
 
         for (size_t curr_state = 0u; curr_state < m256_width_branch_table; curr_state++) {
             // Total errors across R symbols
@@ -111,48 +112,20 @@ private:
             const __m256i decision1 = _mm256_cmpeq_epi16(survivor1, m3);
 
             // Update metrics
-            // 128bit pack/unpack works on entire 128bit segment
-            // | = 128bit boundary, '= lower 64bit boundary
-            // survivor0  : s0 ... s0' ... | 
-            // survivor1  : s1 ... s1' ... |
-            // unpacklo_16: s0' s1'    ... |
-            // unpackhi_16: s0  s1     ... |
-            // new_metrics: s0  s1     ... | s0' s1'    ... |
-            // We effectively interleave survivor0 and survivor1 
-
-            // 256bit pack/unpack works on 128bit segments
-            // | = 128bit boundary, '= lower 64bit boundary
-            // survivor0  : s0 ... s0' ... | s0" ... s0"' ...
-            // survivor1  : s1 ... s1' ... | s1" ... s1"' ...
-            // unpacklo_16: s0' s1'    ... | s0"' s1"'    ...
-            // unpackhi_16: s0  s1     ... | s0"  s1"     ...
-            // new_metrics: s0  s1     ... | s0"  s1"     ... | s0' s1'   ... | s0"' s1"'  ... |
-            // This incorrectly interleaves survivor0 and survivor1 
-            // Therefore we need to do some reshuffling
-
-            // Helper to get 128bit segments from 256bit intrinsic
-            union {
-                __m256i b256;
-                __m128i b128[2];
-            } packed_lower, packed_upper;
-
-            packed_lower.b256 = _mm256_unpacklo_epi16(survivor0, survivor1);
-            packed_upper.b256 = _mm256_unpackhi_epi16(survivor0, survivor1);
-
+            const __m256i new_metric_lo = _mm256_unpacklo_epi16(survivor0, survivor1);
+            const __m256i new_metric_hi = _mm256_unpackhi_epi16(survivor0, survivor1);
             // Reshuffle into correct order along 128bit boundaries
-            m128_new_metric[4*curr_state+0] = packed_lower.b128[0];
-            m128_new_metric[4*curr_state+1] = packed_upper.b128[0];
-            m128_new_metric[4*curr_state+2] = packed_lower.b128[1];
-            m128_new_metric[4*curr_state+3] = packed_upper.b128[1];
+            m256_new_metric[2*curr_state+0] = _mm256_permute2x128_si256(new_metric_lo, new_metric_hi, 0b0010'0000);
+            m256_new_metric[2*curr_state+1] = _mm256_permute2x128_si256(new_metric_lo, new_metric_hi, 0b0011'0001);
 
             // Pack each set of decisions into 8 8-bit bytes, then interleave them and compress into 16 bits
             // 256bit packs works with 128bit segments
             // 256bit unpack works with 128bit segments
             // | = 128bit boundary
-            // packs_16  : d0 .... 0 .... | d0 .... 0 ....
-            // packs_16  : d1 .... 0 .... | d1 .... 0 ....
-            // unpacklo_8: d0 d1 d0 d1 .. | d0 d1 d0 d1 ..
-            // movemask_8: b0 b1 b0 b1 .. (256bit/8bit = 32bitmask)
+            // packs_16  : d0 .... 0 .... | d1 .... 0 ....
+            // packs_16  : d2 .... 0 .... | d3 .... 0 ....
+            // unpacklo_8: d0 d2 d0 d2 .. | d1 d3 d1 d3 ..
+            // movemask_8: b0 b2 b0 b2 .. | b1 b3 b1 b3 ..
             decision[curr_state] = _mm256_movemask_epi8(_mm256_unpacklo_epi8(
                 _mm256_packs_epi16(decision0, _mm256_setzero_si256()), 
                 _mm256_packs_epi16(decision1, _mm256_setzero_si256())));
@@ -173,7 +146,7 @@ private:
         // Find minimum 
         reduce_buffer.m256 = m256_metric[0];
         for (size_t i = 1u; i < m256_width_metric; i++) {
-            reduce_buffer.m256 = _mm256_min_epi16(reduce_buffer.m256, m256_metric[i]);
+            reduce_buffer.m256 = _mm256_min_epu16(reduce_buffer.m256, m256_metric[i]);
         }
 
         // Shift half of the array onto the other half and get the minimum between them

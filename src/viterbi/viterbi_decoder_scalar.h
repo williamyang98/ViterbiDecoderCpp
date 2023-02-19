@@ -17,6 +17,16 @@
 #include "utility/aligned_vector.h"
 #include "utility/basic_ops.h"
 
+// Helper data structure to store important constants
+template <typename error_t>
+struct ViterbiDecoder_Config 
+{
+    error_t soft_decision_max_error;            // max total error for R output symbols against reference
+    error_t initial_start_error;
+    error_t initial_non_start_error;
+    error_t renormalisation_threshold;          // threshold to normalise all errors to 0
+};
+
 template <
     typename error_t = uint16_t,                // expects unsigned integer type
     typename soft_t = int16_t,                  // expects either unsigned or signed integer types
@@ -38,14 +48,12 @@ protected:
     std::vector<decision_bits_t> decisions;     // shape: (TRACEBACK_LENGTH x DECISION_BITS_LENGTH)
     size_t curr_decoded_bit;
 
-    const error_t soft_decision_max_error;      // max total error for R output symbols against reference
-    static constexpr error_t INITIAL_START_ERROR = std::numeric_limits<error_t>::min();
-    const error_t INITIAL_NON_START_ERROR;      
-    const error_t RENORMALISATION_THRESHOLD;    // threshold to normalise all errors to 0
+    const ViterbiDecoder_Config<error_t> config;
     absolute_error_t renormalisation_bias;      // keep track of the absolute error when we renormalise error_t
 public:
     ViterbiDecoder_Scalar(
-        const ViterbiBranchTable<soft_t>& _branch_table)
+        const ViterbiBranchTable<soft_t>& _branch_table,
+        const ViterbiDecoder_Config<error_t>& _config)
     :   ViterbiDecoder(_branch_table.K, _branch_table.R),
         // size of various data structures
         NUMSTATES(std::size_t(1) << (K-1u)),
@@ -53,18 +61,11 @@ public:
         DECISION_BITS_LENGTH(max(NUMSTATES/DECISIONTYPE_BITSIZE, std::size_t(1u))),
         METRIC_LENGTH(NUMSTATES),
         // internal data structures
-        // NOTE: We align the metrics generously to 32bytes for possible AVX2 alignment
         branch_table(_branch_table),
-        metrics(2*METRIC_LENGTH, 32u),  
+        // NOTE: We align the metrics generously to 32bytes for possible AVX2 alignment
+        metrics(2u*METRIC_LENGTH, 32u),  
         decisions(),
-        // soft decision boundaries
-        soft_decision_max_error(error_t(branch_table.soft_decision_high-branch_table.soft_decision_low) * error_t(R)),
-        INITIAL_NON_START_ERROR(INITIAL_START_ERROR+soft_decision_max_error+1u),
-        // TODO: The renormalisation check only tests the first error metric
-        //       This can result in the other error metrics saturating or worse wrap around if we are using modular arithmetic
-        //       To avoid this we set the renormalisation threshold to be quite generous, but it is not guaranteed to be strict
-        //       Can we make this check safer or more reliable?
-        RENORMALISATION_THRESHOLD(std::numeric_limits<error_t>::max()-soft_decision_max_error*10u)
+        config(_config)
     {
         assert(K == branch_table.K);
         assert(R == branch_table.R);
@@ -94,10 +95,10 @@ public:
         renormalisation_bias = 0u;
         auto* old_metric = get_old_metric();
         for (size_t i = 0; i < METRIC_LENGTH; i++) {
-            old_metric[i] = INITIAL_NON_START_ERROR;
+            old_metric[i] = config.initial_non_start_error;
         }
         const size_t STATE_MASK = NUMSTATES-1u;
-        old_metric[starting_state & STATE_MASK] = INITIAL_START_ERROR;
+        old_metric[starting_state & STATE_MASK] = config.initial_start_error;
         std::memset(decisions.data(), 0, decisions.size()*sizeof(decision_bits_t));
     }
 
@@ -147,7 +148,7 @@ public:
             auto* old_metric = get_old_metric();
             auto* new_metric = get_new_metric();
             bfly(&symbols[i], decision, old_metric, new_metric);
-            if (new_metric[0] >= RENORMALISATION_THRESHOLD) {
+            if (new_metric[0] >= config.renormalisation_threshold) {
                 renormalise(new_metric);
             }
             swap_metrics();
@@ -189,10 +190,14 @@ private:
                 const error_t abs_error = error_t(abs(error));
                 total_error += abs_error;
             }
-            assert(total_error <= soft_decision_max_error);
+            assert(total_error <= config.soft_decision_max_error);
 
             // Butterfly algorithm
-            const error_t m_total_error = soft_decision_max_error - total_error;
+            const error_t m_total_error = config.soft_decision_max_error - total_error;
+            // TODO: When adding our error metrics we may cause an overflow to happen 
+            //       if the renormalisation step was not performed in time
+            //       Our intrinsics implementations use saturated arithmetic to prevent an overflow
+            //       Perhaps it is possible to use something like GCC's builtin saturated add here?
             const error_t m0 = old_metric[curr_state                  ] +   total_error;
             const error_t m1 = old_metric[curr_state + METRIC_LENGTH/2] + m_total_error;
             const error_t m2 = old_metric[curr_state                  ] + m_total_error;

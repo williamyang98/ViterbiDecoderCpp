@@ -13,8 +13,9 @@
 #include <immintrin.h>
 
 // Vectorisation using SSE
-// 16bit integers for errors, soft-decision values
-// 16bit integer for packing decision bits
+//     16bit integers for errors, soft-decision values
+//     8 way vectorisation from 128bits/16bits 
+//     16bit decision type since 8 x 2 decisions bits per branch
 // TODO: We can use int16_t for the error_t for a 33% performance improvement
 //       With uint16_t we use adds_epu16 which uses saturated arithmetic and takes 0.5 CPI
 //       With  int16_t we use add_epi16  which uses modular arithmetic and takes 0.33CPI
@@ -29,11 +30,13 @@
 //       Instead of renormalising to INT16_MIN, we renormalise to int16_t(0)
 //       This is not ideal since we effectively halve the range of error values when renormalising
 //       but allows us to use faster modular arithmetic when calculating the error metrics
+//       This also applies to 8bit vectorisations and AVX
 template <typename absolute_error_t = uint64_t>
-class ViterbiDecoder_SSE: public ViterbiDecoder_Scalar<uint16_t, int16_t, uint16_t, absolute_error_t>
+class ViterbiDecoder_SSE_u16: public ViterbiDecoder_Scalar<uint16_t, int16_t, uint16_t, absolute_error_t>
 {
 public:
     static constexpr size_t ALIGN_AMOUNT = sizeof(__m128i);
+    static constexpr size_t K_min = 5;
 private:
     const size_t m128_width_metric;
     const size_t m128_width_branch_table;
@@ -41,20 +44,22 @@ private:
     std::vector<__m128i> m128_symbols;
 public:
     // NOTE: branch_table.K >= 5 and branch_table.alignment >= 16  
-    ViterbiDecoder_SSE(const ViterbiBranchTable<int16_t>& _branch_table)
-    :   ViterbiDecoder_Scalar(_branch_table),
-        // metric:       NUMSTATES   * sizeof(u16) = NUMSTATES*2
-        // branch_table: NUMSTATES/2 * sizeof(s16) = NUMSTATES  
+    template <typename ... U>
+    ViterbiDecoder_SSE_u16(U&& ... args)
+    :   ViterbiDecoder_Scalar(std::forward<U>(args)...),
+        // metric:       NUMSTATES   * sizeof(u16)                      = NUMSTATES*2
+        // branch_table: NUMSTATES/2 * sizeof(s16)                      = NUMSTATES  
         // decision:     NUMSTATES/DECISION_BITSIZE * DECISION_BYTESIZE = NUMSTATES/8
         // 
-        // m128_metric_width:       NUMSTATES / sizeof(__m128i) = NUMSTATES/8
-        // m128_branch_table_width: NUMSTATES / sizeof(__m128i) = NUMSTATES/16
-        // u16_decision_width:      NUMSTATES/8 / sizeof(u16)   = NUMSTATES/16
+        // m128_metric_width:       NUMSTATES*2 / sizeof(__m128i) = NUMSTATES/8
+        // m128_branch_table_width: NUMSTATES   / sizeof(__m128i) = NUMSTATES/16
+        // u16_decision_width:      NUMSTATES/8 / sizeof(u16)     = NUMSTATES/16
         m128_width_metric(NUMSTATES/ALIGN_AMOUNT*2u),
         m128_width_branch_table(NUMSTATES/ALIGN_AMOUNT),
         u16_width_decision(NUMSTATES/ALIGN_AMOUNT),
         m128_symbols(R)
     {
+        assert(K >= K_min);
         // Metrics must meet alignment requirements
         assert((NUMSTATES * sizeof(uint16_t)) % ALIGN_AMOUNT == 0);
         assert((NUMSTATES * sizeof(uint16_t)) >= ALIGN_AMOUNT);
@@ -76,7 +81,7 @@ public:
             auto* old_metric = get_old_metric();
             auto* new_metric = get_new_metric();
             simd_bfly(&symbols[s], decision, old_metric, new_metric);
-            if (new_metric[0] >= RENORMALISATION_THRESHOLD) {
+            if (new_metric[0] >= config.renormalisation_threshold) {
                 simd_renormalise(new_metric);
             }
             swap_metrics();
@@ -99,7 +104,7 @@ private:
         for (size_t i = 0; i < R; i++) {
             m128_symbols[i] = _mm_set1_epi16(symbols[i]);
         }
-        const __m128i max_error = _mm_set1_epi16(soft_decision_max_error);
+        const __m128i max_error = _mm_set1_epi16(config.soft_decision_max_error);
 
         for (size_t curr_state = 0u; curr_state < m128_width_branch_table; curr_state++) {
             // Total errors across R symbols
@@ -153,7 +158,7 @@ private:
         // Find minimum  
         __m128i adjustv = m128_metric[0];
         for (size_t i = 1u; i < m128_width_metric; i++) {
-            adjustv = _mm_min_epi16(adjustv, m128_metric[i]);
+            adjustv = _mm_min_epu16(adjustv, m128_metric[i]);
         }
 
         // Shift half of the array onto the other half and get the minimum between them
