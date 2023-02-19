@@ -5,7 +5,6 @@
 #include "codes.h"
 #include "decoder_factories.h"
 #include "test_helpers.h"
-#include "timer.h"
 #include "getopt/getopt.h"
 
 #include <stdio.h>
@@ -14,55 +13,50 @@
 #include <stddef.h>
 #include <vector>
 #include <random>
+#include <chrono>
 
 constexpr int NOISE_MAX = 100;
 enum SelectedMode {
     SOFT16, SOFT8, HARD8
 };
 
-struct TestResults {
-    float us_reset = 0.0f;      // microseconds
-    float us_update = 0.0f;
-    float us_chainback = 0.0f;
-    float bit_error_rate = 0.0f;      
-    size_t total_incorrect_bits = 0u;
-    size_t total_decoded_bits = 0u;
-    size_t total_error = 0u;
-    size_t total_runs = 0u;
-};
-
 template <typename soft_t, typename error_t, class factory_t>
 void init_test(
-    const Code& code, const DecodeType decode_type,
+    const Code& code, DecodeType decode_type,
     const ViterbiDecoder_Config<error_t>& config,
     const soft_t soft_decision_high,
     const soft_t soft_decision_low,
     const size_t noise_level, const bool is_soft_noise,
-    const size_t total_input_bytes, 
-    const size_t total_runs
+    const size_t total_input_bytes 
 );
 
 template <typename soft_t>
-TestResults run_test(
-    ViterbiDecoder<soft_t>* vitdec, 
-    const soft_t* symbols, const size_t total_symbols, 
-    const uint8_t* in_bytes, uint8_t* out_bytes, const size_t total_input_bytes,
-    const size_t total_runs
+void run_test(
+    ViterbiDecoder<soft_t, uint64_t>* vitdec, 
+    ConvolutionalEncoder* enc, 
+    const size_t noise_level,
+    const bool is_soft_noise,
+    const size_t total_input_bytes,
+    const soft_t soft_decision_high,
+    const soft_t soft_decision_low
 );
 
 void usage() {
     fprintf(stderr, 
-        " run_benchmark, Runs benchmark on viterbi decoding\n\n"
+        "run_decoder, Runs viterbi decoder\n\n"
         "    [-c <code id> (default: 0)]\n"
         "    [-M <mode> (default: soft_16)]\n"
         "        soft_16: use u16 error type and soft decision boundaries\n"
         "        soft_8:  use u8  error type and soft decision boundaries\n"
         "        hard_8:  use u8  error type and hard decision boundaries\n"
+        "    [-d <decode type> (default: highest)]\n"
+        "        scalar:     no vectorisation\n"
+        "        sse:    128bit vectorisation\n"
+        "        avx:    256bit vectorisation\n"
         "    [-n <noise level> (default: 0)]\n"
         "    [-s <random seed> (default: 0)]\n"
         "    [-S Randomises seed ]\n"
         "    [-L <total input bytes> (default: 1024)]\n"
-        "    [-T <total runs> (default: 10000) ]\n"
         "    [-l Lists all available codes]\n"
         "    [-h Show usage]\n"
     );
@@ -75,20 +69,23 @@ int main(int argc, char** argv) {
     int config_type = 0;
     int noise_level = 0;
     int random_seed = 0;
-    bool is_randomise_seed = false;
     int total_input_bytes = 1024;
-    int total_runs = 10000;
+    bool is_randomise_seed = false;
     bool is_show_list = false;
     const char* mode_str = NULL;
+    const char* decode_type_str = NULL;
 
 	int opt; 
-    while ((opt = getopt_custom(argc, argv, "c:M:n:s:SL:T:lh")) != -1) {
+    while ((opt = getopt_custom(argc, argv, "c:M:d:n:s:SL:lh")) != -1) {
         switch (opt) {
         case 'c':
             config_type = atoi(optarg);
             break;
         case 'M':
             mode_str = optarg;
+            break;
+        case 'd':
+            decode_type_str = optarg;
             break;
         case 'n':
             noise_level = atoi(optarg);
@@ -101,9 +98,6 @@ int main(int argc, char** argv) {
             break;
         case 'L':
             total_input_bytes = atoi(optarg);
-            break;
-        case 'T':
-            total_runs = atoi(optarg);
             break;
         case 'l':
             is_show_list = true;
@@ -172,7 +166,10 @@ int main(int argc, char** argv) {
     }
 
     if (noise_level < 0) {
-        fprintf(stderr, "Noise level must be positive\n");
+        fprintf(
+            stderr,
+            "Noise level must be positive\n"
+        );
         return 1;
     }
 
@@ -193,9 +190,37 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (total_runs < 0) {
-        fprintf(stderr, "Total runs must be positive\n");
-        return 1;
+
+    // Get valid decode type for selected code
+    const auto& code = common_codes[config_type];
+
+    DecodeType decode_type = get_fastest_simd_type(code.K, K_simd_requirements);
+    if (decode_type_str != NULL) {
+        auto new_decode_type = DecodeType::SIMD_AVX;
+        if (strncmp(decode_type_str, "scalar", 7) == 0) {
+            new_decode_type = DecodeType::SCALAR;
+        } else if (strncmp(decode_type_str, "sse", 4) == 0) {
+            new_decode_type = DecodeType::SIMD_SSE;
+        } else if (strncmp(decode_type_str, "avx", 4) == 0) {
+            new_decode_type = DecodeType::SIMD_AVX;
+        } else {
+            fprintf(
+                stderr, 
+                "Invalid option for decode_type='%s'\n"
+                "Run '%s -h' for description of '-d'\n", 
+                decode_type_str, argv[0]);
+            return 1;
+        }
+
+        if (new_decode_type > decode_type) {
+            printf(
+                "WARN: Selected code can only operate up to '%s' but '%s' was requested\n",
+                get_decode_type_name(decode_type).c_str(),
+                get_decode_type_name(new_decode_type).c_str()
+            );
+        } else {
+            decode_type = new_decode_type;
+        }
     }
 
     // Generate seed
@@ -208,15 +233,12 @@ int main(int argc, char** argv) {
     }
     std::srand((unsigned int)random_seed);
 
-    const auto& code = common_codes[config_type];
-    const DecodeType decode_type = get_fastest_simd_type(code.K, K_simd_requirements);
-
     // Run decoder for selected mode
     if (selected_mode == SelectedMode::SOFT16) {
         const int16_t soft_decision_high = +127;
         const int16_t soft_decision_low  = -127;
         const uint16_t max_error = uint16_t(soft_decision_high-soft_decision_low) * uint16_t(code.R);
-        const uint16_t error_margin = max_error * uint16_t(5u);
+        const uint16_t error_margin = max_error * uint16_t(4u);
 
         ViterbiDecoder_Config<uint16_t> config;
         config.soft_decision_max_error = max_error;
@@ -229,14 +251,13 @@ int main(int argc, char** argv) {
             config,
             soft_decision_high, soft_decision_low,
             size_t(noise_level), true,
-            size_t(total_input_bytes),
-            size_t(total_runs)
+            size_t(total_input_bytes)
         );
     } else if (selected_mode == SelectedMode::SOFT8) {
-        const int8_t soft_decision_high = +3;
-        const int8_t soft_decision_low  = -3;
+        const int8_t soft_decision_high = +5;
+        const int8_t soft_decision_low  = -5;
         const uint8_t max_error = uint8_t(soft_decision_high-soft_decision_low) * uint8_t(code.R);
-        const uint8_t error_margin = max_error * uint8_t(2u);
+        const uint8_t error_margin = max_error * uint8_t(1u);
 
         ViterbiDecoder_Config<uint8_t> config;
         config.soft_decision_max_error = max_error;
@@ -249,14 +270,13 @@ int main(int argc, char** argv) {
             config,
             soft_decision_high, soft_decision_low,
             size_t(noise_level), true,
-            size_t(total_input_bytes),
-            size_t(total_runs)
+            size_t(total_input_bytes)
         );
     } else {
         const int8_t soft_decision_high = +1;
         const int8_t soft_decision_low  = -1;
         const uint8_t max_error = uint8_t(soft_decision_high-soft_decision_low) * uint8_t(code.R);
-        const uint8_t error_margin = max_error * uint8_t(3u);
+        const uint8_t error_margin = max_error * uint8_t(4u);
 
         ViterbiDecoder_Config<uint8_t> config;
         config.soft_decision_max_error = max_error;
@@ -269,23 +289,22 @@ int main(int argc, char** argv) {
             config,
             soft_decision_high, soft_decision_low,
             size_t(noise_level), false,
-            size_t(total_input_bytes),
-            size_t(total_runs)
+            size_t(total_input_bytes)
         );
     }
 
     return 0;
 }
 
+
 template <typename soft_t, typename error_t, class factory_t>
 void init_test(
-    const Code& code, const DecodeType decode_type,
+    const Code& code, DecodeType decode_type,
     const ViterbiDecoder_Config<error_t>& config,
     const soft_t soft_decision_high,
     const soft_t soft_decision_low,
     const size_t noise_level, const bool is_soft_noise,
-    const size_t total_input_bytes, 
-    const size_t total_runs
+    const size_t total_input_bytes 
 ) {
     static_assert(
         sizeof(soft_t) == sizeof(error_t), 
@@ -297,12 +316,13 @@ void init_test(
     const size_t R = code.R;
     const auto* G = code.G.data();
     constexpr size_t K_max_lookup = 10;
-    const size_t total_input_bits = total_input_bytes*8u;
 
     printf("Using '%s': K=%zu, R=%zu\n", name, K, R);
 
-    // Decide suitable convolutional encoder
+    ViterbiDecoder<soft_t>* vitdec = NULL;
     ConvolutionalEncoder* enc = NULL;
+
+    // Decide appropriate convolutional encoder
     if (K >= K_max_lookup) {
         printf(
             "Using shift register encoder due to large K (%zu >= %zu)\n",
@@ -326,14 +346,70 @@ void init_test(
         simd_alignment
     );
 
+    // Create viterbi decoder
+    switch (decode_type) {
+    case DecodeType::SCALAR:
+        {
+            printf("Using SCALAR decoder\n");
+            vitdec = factory_t::get_scalar(branch_table, config);
+        }
+        break;
+    case DecodeType::SIMD_SSE:
+        {
+            printf("Using SIMD_SSE with alignment=%zu\n", simd_alignment);
+            vitdec = factory_t::get_simd_sse(branch_table, config);
+        }
+        break;
+    case DecodeType::SIMD_AVX:
+        {
+            printf("Using SIMD_AVX with alignment=%zu\n", simd_alignment);
+            vitdec = factory_t::get_simd_avx(branch_table, config);
+        }
+        break;
+    default:
+        printf("Unknown decoder type\n");
+        exit(1);
+        break;
+    }
+
+    run_test<soft_t>(
+        vitdec, enc, 
+        noise_level, is_soft_noise, 
+        total_input_bytes, 
+        soft_decision_high, soft_decision_low
+    );
+
+    delete vitdec;
+    delete enc;
+}
+
+template <typename soft_t>
+void run_test(
+    ViterbiDecoder<soft_t, uint64_t>* vitdec, 
+    ConvolutionalEncoder* enc, 
+    const size_t noise_level,
+    const bool is_soft_noise,
+    const size_t total_input_bytes,
+    const soft_t soft_decision_high,
+    const soft_t soft_decision_low
+) {
+    assert(vitdec->K == enc->K);
+    assert(vitdec->R == enc->R);
+    const size_t K = vitdec->K; 
+    const size_t R = vitdec->R; 
+    const size_t total_input_bits = total_input_bytes*8u;
+    vitdec->set_traceback_length(total_input_bits);
+
     // Generate test data
     std::vector<uint8_t> tx_input_bytes;
     std::vector<soft_t> output_symbols; 
     std::vector<uint8_t> rx_input_bytes;
     tx_input_bytes.resize(total_input_bytes);
     rx_input_bytes.resize(total_input_bytes);
+
     generate_random_bytes(tx_input_bytes.data(), tx_input_bytes.size());
     encode_data(enc, tx_input_bytes, output_symbols, soft_decision_high, soft_decision_low);
+
     // generate appropriate noise signal
     if (noise_level > 0) {
         if (is_soft_noise) {
@@ -343,114 +419,16 @@ void init_test(
             add_binary_noise(output_symbols.data(), output_symbols.size(), noise_level, uint64_t(NOISE_MAX));
         }
     }
+
     const size_t total_output_symbols = output_symbols.size();
-    delete enc;
+    vitdec->reset();
+    vitdec->update(output_symbols.data(), total_output_symbols);
+    const uint64_t error = vitdec->chainback(rx_input_bytes.data(), total_input_bits, 0u);
+    printf("error=%zu\n", error);
 
-    // Run tests
-    TestResults test_scalar, test_simd_sse, test_simd_avx;
-    printf("Starting total_runs=%zu\n", total_runs);
-    if (decode_type >= DecodeType::SCALAR) {
-        auto* vitdec = factory_t::get_scalar(branch_table, config);
-        vitdec->set_traceback_length(total_input_bits);
-        test_scalar = run_test(
-            vitdec, 
-            output_symbols.data(), output_symbols.size(), 
-            tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
-            total_runs
-        );
-        delete vitdec;
-
-        printf("> Scalar results\n");
-        printf("us_reset     = %.2f\n", test_scalar.us_reset);
-        printf("us_update    = %.2f\n", test_scalar.us_update);
-        printf("us_chainback = %.2f\n", test_scalar.us_chainback);
-        printf("ber          = %.4f\n", test_scalar.bit_error_rate);
-        printf("errors       = %zu/%zu\n", test_scalar.total_incorrect_bits, test_scalar.total_decoded_bits);
-        printf("error_metric = %zu\n",  test_scalar.total_error);
-        printf("\n");
-    }
-
-    if (decode_type >= DecodeType::SIMD_SSE) {
-        auto* vitdec = factory_t::get_simd_sse(branch_table, config);
-        vitdec->set_traceback_length(total_input_bits);
-        test_simd_sse = run_test(
-            vitdec, 
-            output_symbols.data(), output_symbols.size(), 
-            tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
-            total_runs
-        );
-        delete vitdec;
-
-        printf("> SIMD_SSE results\n");
-        printf("us_reset     = %.2f (x%.2f)\n", test_simd_sse.us_reset, test_scalar.us_reset/test_simd_sse.us_reset);
-        printf("us_update    = %.2f (x%.2f)\n", test_simd_sse.us_update, test_scalar.us_update/test_simd_sse.us_update);
-        printf("us_chainback = %.2f (x%.2f)\n", test_simd_sse.us_chainback, test_scalar.us_chainback/test_simd_sse.us_chainback);
-        printf("ber          = %.4f\n", test_simd_sse.bit_error_rate);
-        printf("errors       = %zu/%zu\n", test_simd_sse.total_incorrect_bits, test_simd_sse.total_decoded_bits);
-        printf("error_metric = %zu\n",  test_simd_sse.total_error);
-        printf("\n");
-    }
-
-    if (decode_type >= DecodeType::SIMD_AVX) {
-        auto* vitdec = factory_t::get_simd_avx(branch_table, config);
-        vitdec->set_traceback_length(total_input_bits);
-        test_simd_avx = run_test(
-            vitdec, 
-            output_symbols.data(), output_symbols.size(), 
-            tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
-            total_runs
-        );
-        delete vitdec;
-
-        printf("> SIMD_AVX results\n");
-        printf("us_reset     = %.2f (x%.2f)\n", test_simd_avx.us_reset, test_scalar.us_reset/test_simd_avx.us_reset);
-        printf("us_update    = %.2f (x%.2f)\n", test_simd_avx.us_update, test_scalar.us_update/test_simd_avx.us_update);
-        printf("us_chainback = %.2f (x%.2f)\n", test_simd_avx.us_chainback, test_scalar.us_chainback/test_simd_avx.us_chainback);
-        printf("ber          = %.4f\n", test_simd_avx.bit_error_rate);
-        printf("errors       = %zu/%zu\n", test_simd_avx.total_incorrect_bits, test_simd_avx.total_decoded_bits);
-        printf("error_metric = %zu\n",  test_simd_avx.total_error);
-        printf("\n");
-    }
-}
-
-template <typename soft_t>
-TestResults run_test(
-    ViterbiDecoder<soft_t>* vitdec, 
-    const soft_t* symbols, const size_t total_symbols, 
-    const uint8_t* in_bytes, uint8_t* out_bytes, const size_t total_input_bytes,
-    const size_t total_runs
-) {
-    const size_t total_input_bits = total_input_bytes*8u;
-    constexpr size_t print_rate = 1u;
-
-    TestResults results;
-    for (size_t curr_run = 0u; curr_run < total_runs; curr_run++) {
-        if (curr_run % print_rate == 0) {
-            printf("Run: %zu/%zu\r", curr_run, total_runs);
-        }
-        {
-            Timer t;
-            vitdec->reset();
-            results.us_reset += float(t.get_delta());
-        }
-        {
-            Timer t;
-            vitdec->update(symbols, total_symbols);
-            results.us_update += float(t.get_delta());
-        }
-        {
-            Timer t;
-            const uint64_t error = vitdec->chainback(out_bytes, total_input_bits, 0u);
-            results.total_error += error;
-            results.us_chainback += float(t.get_delta());
-        }
-        const size_t total_errors = get_total_bit_errors(in_bytes, out_bytes, total_input_bytes);
-        results.total_incorrect_bits += total_errors;
-        results.total_decoded_bits += total_input_bits;
-        results.total_runs++;
-    }
-    printf("%*s\r", 100, "");
-
-    results.bit_error_rate = float(results.total_incorrect_bits) / float(results.total_decoded_bits);
-    return results;
+    // Show decoding results
+    const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes);
+    const float bit_error_rate = (float)total_errors / (float)total_input_bits * 100.0f;
+    printf("bit error rate=%.2f%%\n", bit_error_rate);
+    printf("%zu/%zu incorrect bits\n", total_errors, total_input_bits);
 }

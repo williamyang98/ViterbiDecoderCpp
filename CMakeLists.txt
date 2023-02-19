@@ -10,19 +10,12 @@ endif()
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-add_executable(run_soft_decoding
-    ${SRC_DIR}/examples/run_soft_decoding.cpp  
+add_executable(run_decoder
+    ${SRC_DIR}/examples/run_decoder.cpp  
     ${SRC_DIR}/examples/getopt/getopt.c
 )
-target_include_directories(run_soft_decoding PUBLIC ${SRC_DIR} ${SRC_DIR}/examples)
-set_target_properties(run_soft_decoding PROPERTIES CXX_STANDARD 17)
-
-add_executable(run_hard_decoding
-    ${SRC_DIR}/examples/run_hard_decoding.cpp  
-    ${SRC_DIR}/examples/getopt/getopt.c
-)
-target_include_directories(run_hard_decoding PUBLIC ${SRC_DIR} ${SRC_DIR}/examples)
-set_target_properties(run_hard_decoding PROPERTIES CXX_STANDARD 17)
+target_include_directories(run_decoder PUBLIC ${SRC_DIR} ${SRC_DIR}/examples)
+set_target_properties(run_decoder PROPERTIES CXX_STANDARD 17)
 
 add_executable(run_benchmark
     ${SRC_DIR}/examples/run_benchmark.cpp  

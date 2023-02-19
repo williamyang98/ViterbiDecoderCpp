@@ -19,8 +19,8 @@ void encode_data(
     ConvolutionalEncoder* enc, 
     const std::vector<uint8_t>& input_bytes, 
     std::vector<T>& output_symbols,
-    const T SOFT_DECISION_HIGH,
-    const T SOFT_DECISION_LOW) 
+    const T soft_decision_high,
+    const T soft_decision_low) 
 {
     const size_t K = enc->K;
     const size_t R = enc->R;
@@ -37,7 +37,7 @@ void encode_data(
             const size_t curr_byte = i / 8;
             const size_t curr_bit = i % 8;
             const bool bit = (buf[curr_byte] >> curr_bit) & 0b1;
-            output_symbols[curr_output_symbol] = bit ? SOFT_DECISION_HIGH : SOFT_DECISION_LOW;
+            output_symbols[curr_output_symbol] = bit ? soft_decision_high : soft_decision_low;
             curr_output_symbol++;                
         }
     };
@@ -69,6 +69,18 @@ void add_noise(T* data, const size_t N, const T noise_level) {
         auto& v = data[i];
         const T n = T(std::rand() % noise_threshold);
         v += n;
+    }
+}
+
+template <typename T>
+void add_binary_noise(T* data, const size_t N, const uint64_t noise_level, const uint64_t max_noise) {
+    const uint64_t mod_noise = max_noise*2u;
+    for (size_t i = 0u; i < N; i++) {
+        const uint64_t noise_value = uint64_t(std::rand()) % mod_noise;
+        auto& v = data[i];
+        if (noise_value <= noise_level)  {
+            v = -v;
+        }
     }
 }
 
