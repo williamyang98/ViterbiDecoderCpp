@@ -23,3 +23,10 @@ add_executable(run_benchmark
 )
 target_include_directories(run_benchmark PUBLIC ${SRC_DIR} ${SRC_DIR}/examples)
 set_target_properties(run_benchmark PROPERTIES CXX_STANDARD 17)
+
+add_executable(run_punctured_decoder
+    ${SRC_DIR}/examples/run_punctured_decoder.cpp  
+    ${SRC_DIR}/examples/getopt/getopt.c
+)
+target_include_directories(run_punctured_decoder PUBLIC ${SRC_DIR} ${SRC_DIR}/examples)
+set_target_properties(run_punctured_decoder PROPERTIES CXX_STANDARD 17)
