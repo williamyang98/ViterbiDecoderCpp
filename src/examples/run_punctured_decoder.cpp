@@ -196,7 +196,7 @@ int main(int argc, char** argv) {
         soft_decision.high = config.soft_decision_high;
         soft_decision.unpunctured = 0; 
         const uint64_t hard_noise_level = uint64_t(normalised_noise_level * 100.0f);
-        printf(">> Using soft_8 decoders\n");
+        printf(">> Using hard_8 decoders\n");
         run_test<ViterbiDecoder_Factory_u8>(
             config.decoder_config, 
             soft_decision, 
