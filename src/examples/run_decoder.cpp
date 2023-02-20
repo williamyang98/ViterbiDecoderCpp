@@ -3,6 +3,8 @@
 #include "viterbi/convolutional_encoder_shift_register.h"
 
 #include "codes.h"
+#include "decoding_types.h"
+#include "decoding_modes.h"
 #include "decoder_factories.h"
 #include "test_helpers.h"
 #include "getopt/getopt.h"
@@ -26,7 +28,7 @@ void init_test(
     const ViterbiDecoder_Config<error_t>& config,
     const soft_t soft_decision_high,
     const soft_t soft_decision_low,
-    const size_t noise_level, const bool is_soft_noise,
+    const uint64_t noise_level, const bool is_soft_noise,
     const size_t total_input_bytes 
 );
 
@@ -34,7 +36,7 @@ template <typename soft_t, class T>
 void run_test(
     T& vitdec, 
     ConvolutionalEncoder* enc, 
-    const size_t noise_level,
+    const uint64_t noise_level,
     const bool is_soft_noise,
     const size_t total_input_bytes,
     const soft_t soft_decision_high,
@@ -54,8 +56,7 @@ void usage() {
         "        sse:    128bit vectorisation\n"
         "        avx:    256bit vectorisation\n"
         "    [-n <noise level> (default: 0)]\n"
-        "    [-s <random seed> (default: 0)]\n"
-        "    [-S Randomises seed ]\n"
+        "    [-s <random seed> (default: Random)]\n"
         "    [-L <total input bytes> (default: 1024)]\n"
         "    [-l Lists all available codes]\n"
         "    [-h Show usage]\n"
@@ -70,13 +71,13 @@ int main(int argc, char** argv) {
     int noise_level = 0;
     int random_seed = 0;
     int total_input_bytes = 1024;
-    bool is_randomise_seed = false;
+    bool is_randomise_seed = true;
     bool is_show_list = false;
     const char* mode_str = NULL;
     const char* decode_type_str = NULL;
 
 	int opt; 
-    while ((opt = getopt_custom(argc, argv, "c:M:d:n:s:SL:lh")) != -1) {
+    while ((opt = getopt_custom(argc, argv, "c:M:d:n:s:L:lh")) != -1) {
         switch (opt) {
         case 'c':
             config_type = atoi(optarg);
@@ -88,10 +89,8 @@ int main(int argc, char** argv) {
             decode_type_str = optarg;
             break;
         case 'n':
+            is_randomise_seed = false;
             noise_level = atoi(optarg);
-            break;
-        case 's':
-            random_seed = atoi(optarg);
             break;
         case 'S':
             is_randomise_seed = true;
@@ -235,62 +234,34 @@ int main(int argc, char** argv) {
 
     // Run decoder for selected mode
     if (selected_mode == SelectedMode::SOFT16) {
-        const int16_t soft_decision_high = +127;
-        const int16_t soft_decision_low  = -127;
-        const uint16_t max_error = uint16_t(soft_decision_high-soft_decision_low) * uint16_t(code.R);
-        const uint16_t error_margin = max_error * uint16_t(4u);
-
-        ViterbiDecoder_Config<uint16_t> config;
-        config.soft_decision_max_error = max_error;
-        config.initial_start_error = std::numeric_limits<uint16_t>::min();
-        config.initial_non_start_error = config.initial_start_error + error_margin;
-        config.renormalisation_threshold = std::numeric_limits<uint16_t>::max() - error_margin;
-
+        auto config = get_soft16_decoding_config(code.R);
         init_test<int16_t, uint16_t, ViterbiDecoder_Factory_u16>(
             code, decode_type,
-            config,
-            soft_decision_high, soft_decision_low,
+            config.decoder_config,
+            config.soft_decision_high, config.soft_decision_low,
             size_t(noise_level), true,
             size_t(total_input_bytes)
         );
     } else if (selected_mode == SelectedMode::SOFT8) {
-        const int8_t soft_decision_high = +5;
-        const int8_t soft_decision_low  = -5;
-        const uint8_t max_error = uint8_t(soft_decision_high-soft_decision_low) * uint8_t(code.R);
-        const uint8_t error_margin = max_error * uint8_t(1u);
-
-        ViterbiDecoder_Config<uint8_t> config;
-        config.soft_decision_max_error = max_error;
-        config.initial_start_error = std::numeric_limits<uint8_t>::min();
-        config.initial_non_start_error = config.initial_start_error + error_margin;
-        config.renormalisation_threshold = std::numeric_limits<uint8_t>::max() - error_margin;
-
+        auto config = get_soft8_decoding_config(code.R);
         init_test<int8_t, uint8_t, ViterbiDecoder_Factory_u8>(
             code, decode_type,
-            config,
-            soft_decision_high, soft_decision_low,
+            config.decoder_config,
+            config.soft_decision_high, config.soft_decision_low,
+            size_t(noise_level), true,
+            size_t(total_input_bytes)
+        );
+    } else if (selected_mode == SelectedMode::HARD8) {
+        auto config = get_hard8_decoding_config(code.R);
+        init_test<int8_t, uint8_t, ViterbiDecoder_Factory_u8>(
+            code, decode_type,
+            config.decoder_config,
+            config.soft_decision_high, config.soft_decision_low,
             size_t(noise_level), true,
             size_t(total_input_bytes)
         );
     } else {
-        const int8_t soft_decision_high = +1;
-        const int8_t soft_decision_low  = -1;
-        const uint8_t max_error = uint8_t(soft_decision_high-soft_decision_low) * uint8_t(code.R);
-        const uint8_t error_margin = max_error * uint8_t(4u);
-
-        ViterbiDecoder_Config<uint8_t> config;
-        config.soft_decision_max_error = max_error;
-        config.initial_start_error = std::numeric_limits<uint8_t>::min();
-        config.initial_non_start_error = config.initial_start_error + error_margin;
-        config.renormalisation_threshold = std::numeric_limits<uint8_t>::max() - error_margin;
-
-        init_test<int8_t, uint8_t, ViterbiDecoder_Factory_u8>(
-            code, decode_type,
-            config,
-            soft_decision_high, soft_decision_low,
-            size_t(noise_level), false,
-            size_t(total_input_bytes)
-        );
+        fprintf(stderr, "Got an invalid decoding mode\n");
     }
 
     return 0;
@@ -303,7 +274,7 @@ void init_test(
     const ViterbiDecoder_Config<error_t>& config,
     const soft_t soft_decision_high,
     const soft_t soft_decision_low,
-    const size_t noise_level, const bool is_soft_noise,
+    const uint64_t noise_level, const bool is_soft_noise,
     const size_t total_input_bytes 
 ) {
     static_assert(
@@ -395,7 +366,7 @@ template <typename soft_t, class T>
 void run_test(
     T& vitdec, 
     ConvolutionalEncoder* enc, 
-    const size_t noise_level,
+    const uint64_t noise_level,
     const bool is_soft_noise,
     const size_t total_input_bytes,
     const soft_t soft_decision_high,

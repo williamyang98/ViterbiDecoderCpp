@@ -64,8 +64,8 @@ size_t encode_data(
 }
 
 template <typename T>
-void add_noise(T* data, const size_t N, const size_t noise_level) {
-    const size_t noise_threshold = noise_level+1;
+void add_noise(T* data, const size_t N, const uint64_t noise_level) {
+    const uint64_t noise_threshold = noise_level+1;
     for (size_t i = 0u; i < N; i++) {
         auto& v = data[i];
         const T n = T(std::rand() % noise_threshold);
