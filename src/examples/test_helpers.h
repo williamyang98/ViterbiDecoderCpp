@@ -15,21 +15,20 @@ void generate_random_bytes(uint8_t* data, const size_t N) {
 }
 
 template <typename T>
-void encode_data(
+size_t encode_data(
     ConvolutionalEncoder* enc, 
-    const std::vector<uint8_t>& input_bytes, 
-    std::vector<T>& output_symbols,
+    const uint8_t* input_bytes, const size_t total_input_bytes,
+    T* output_symbols, const size_t max_output_symbols,
     const T soft_decision_high,
     const T soft_decision_low) 
 {
     const size_t K = enc->K;
     const size_t R = enc->R;
 
-    const size_t total_input_bytes = input_bytes.size();
     const size_t total_input_bits = total_input_bytes*8;
     const size_t total_tail_bits = K-1;
     const size_t total_output_symbols = (total_input_bits + total_tail_bits) * R;
-    output_symbols.resize(total_output_symbols);
+    assert(total_output_symbols <= max_output_symbols);
 
     size_t curr_output_symbol = 0u;
     auto push_symbols = [&](const uint8_t* buf, const size_t total_bits) {
@@ -42,29 +41,31 @@ void encode_data(
         }
     };
 
-    auto y = std::vector<uint8_t>(R);
+    auto symbols = std::vector<uint8_t>(R);
 
     // encode input bytes
     for (size_t i = 0u; i < total_input_bytes; i++) {
         const uint8_t x = input_bytes[i];
-        enc->consume_byte(x, y.data());
-        push_symbols(y.data(), 8u*R);
+        enc->consume_byte(x, symbols.data());
+        push_symbols(symbols.data(), 8u*R);
     }
 
     // terminate tail at state 0
     for (size_t i = 0u; i < total_tail_bits; ) {
-        const size_t total_bits = min(total_tail_bits-i, size_t(8u));
-        enc->consume_byte(0x00, y.data());
-        push_symbols(y.data(), total_bits*R);
+        const size_t remain_bits = total_tail_bits-i;
+        const size_t total_bits = min(remain_bits, size_t(8u));
+        enc->consume_byte(0x00, symbols.data());
+        push_symbols(symbols.data(), total_bits*R);
         i += total_bits;
     }
 
     assert(curr_output_symbol == total_output_symbols);
+    return total_output_symbols;
 }
 
 template <typename T>
-void add_noise(T* data, const size_t N, const T noise_level) {
-    const uint16_t noise_threshold = noise_level+1;
+void add_noise(T* data, const size_t N, const size_t noise_level) {
+    const size_t noise_threshold = noise_level+1;
     for (size_t i = 0u; i < N; i++) {
         auto& v = data[i];
         const T n = T(std::rand() % noise_threshold);

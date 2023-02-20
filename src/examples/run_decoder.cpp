@@ -414,14 +414,26 @@ void run_test(
     std::vector<uint8_t> rx_input_bytes;
     tx_input_bytes.resize(total_input_bytes);
     rx_input_bytes.resize(total_input_bytes);
+    {
+        const size_t total_tail_bits = K-1u;
+        const size_t total_data_bits = total_input_bytes*8;
+        const size_t total_bits = total_data_bits + total_tail_bits;
+        const size_t total_symbols = total_bits * R;
+        output_symbols.resize(total_symbols);
+    }
 
     generate_random_bytes(tx_input_bytes.data(), tx_input_bytes.size());
-    encode_data(enc, tx_input_bytes, output_symbols, soft_decision_high, soft_decision_low);
+    encode_data(
+        enc, 
+        tx_input_bytes.data(), tx_input_bytes.size(), 
+        output_symbols.data(), output_symbols.size(),
+        soft_decision_high, soft_decision_low
+    );
 
     // generate appropriate noise signal
     if (noise_level > 0) {
         if (is_soft_noise) {
-            add_noise(output_symbols.data(), output_symbols.size(), soft_t(noise_level));
+            add_noise(output_symbols.data(), output_symbols.size(), noise_level);
             clamp_vector(output_symbols.data(), output_symbols.size(), soft_decision_low, soft_decision_high);
         } else {
             add_binary_noise(output_symbols.data(), output_symbols.size(), noise_level, uint64_t(NOISE_MAX));
