@@ -75,7 +75,8 @@ public:
         // number of symbols must be a multiple of the code rate
         assert(N % R == 0);
         const size_t total_decoded_bits = N / R;
-        assert((total_decoded_bits + curr_decoded_bit) <= decisions.size());
+        const size_t max_decoded_bits = get_traceback_length() + TOTAL_STATE_BITS;
+        assert((total_decoded_bits + curr_decoded_bit) <= max_decoded_bits);
 
         for (size_t s = 0; s < N; s+=R) {
             auto* decision = get_decision(curr_decoded_bit);
