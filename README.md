@@ -104,6 +104,13 @@ The 16bit and 8bit scalar decoders take similar amounts of time. This means we c
 - Additionally check out Phil Karn's fine tuned assembly code [here](https://github.com/ka9q/libfec) for the best possible performance 
 - This code is not heavily tested and your mileage may vary. This was written for personal usage.
 
+# Example code
+| Name | Description |
+| --- | --- |
+| run_benchmark | Runs benchmark to compare performance between vectorisations |
+| run_decoder | Runs any arbitary decoder |
+| run_punctured_decoder | Implementation of DAB radio punctured decoding |
+
 # Useful alternatives
 - [Spiral project](https://www.spiral.net/software/viterbi.html) aims to auto-generate high performance code for any input parameters
 - [ka9q/libfec](https://github.com/ka9q/libfec) is Phil Karn's original C implementation
