@@ -42,7 +42,7 @@ void list_codes(const Code* codes, const size_t N, const size_t K_simd[3]) {
     for (size_t i = 0u; i < N; i++) {
         const auto& code = codes[i];
         const auto decode_type = get_fastest_simd_type(code.K, K_simd);
-        printf("%+2zu | %*s | %+2zu %+2zu | ", i, (int)max_name_length, code.name.c_str(), code.K, code.R);
+        printf("%2zu | %*s | %2zu %2zu | ", i, (int)max_name_length, code.name.c_str(), code.K, code.R);
 
         // default decode type
         printf("%*s", 8, get_decode_type_name(decode_type).c_str());

@@ -19,6 +19,8 @@
 template <typename absolute_error_t = uint64_t>
 class ViterbiDecoder_SSE_u8: public ViterbiDecoder_Core<uint8_t, int8_t, uint32_t, absolute_error_t>
 {
+private:
+    using Base = ViterbiDecoder_Core<uint8_t, int8_t, uint32_t, absolute_error_t>;
 public:
     static constexpr size_t ALIGN_AMOUNT = sizeof(__m128i);
     static constexpr size_t K_min = 6;
@@ -31,7 +33,7 @@ public:
     // NOTE: branch_table.K >= 6 and branch_table.alignment >= 16  
     template <typename ... U>
     ViterbiDecoder_SSE_u8(U&& ... args)
-    :   ViterbiDecoder_Core(std::forward<U>(args)...),
+    :   Base(std::forward<U>(args)...),
         // metric:       NUMSTATES   * sizeof(u8)                       = NUMSTATES
         // branch_table: NUMSTATES/2 * sizeof(s8)                       = NUMSTATES/2 
         // decision:     NUMSTATES/DECISION_BITSIZE * DECISION_BYTESIZE = NUMSTATES/8
@@ -39,18 +41,18 @@ public:
         // m128_metric_width:       NUMSTATES   / sizeof(__m128i) = NUMSTATES/16
         // m128_branch_table_width: NUMSTATES/2 / sizeof(__m128i) = NUMSTATES/32
         // u16_decision_width:      NUMSTATES/8 / sizeof(u32)     = NUMSTATES/32
-        m128_width_metric(NUMSTATES/ALIGN_AMOUNT),
-        m128_width_branch_table(NUMSTATES/(2u*ALIGN_AMOUNT)),
-        u16_width_decision(NUMSTATES/(2u*ALIGN_AMOUNT)),
-        m128_symbols(R)
+        m128_width_metric(this->NUMSTATES/ALIGN_AMOUNT),
+        m128_width_branch_table(this->NUMSTATES/(2u*ALIGN_AMOUNT)),
+        u16_width_decision(this->NUMSTATES/(2u*ALIGN_AMOUNT)),
+        m128_symbols(this->R)
     {
-        assert(K >= K_min);
+        assert(this->K >= K_min);
         // Metrics must meet alignment requirements
-        assert((METRIC_LENGTH * sizeof(uint8_t)) % ALIGN_AMOUNT == 0);
-        assert((METRIC_LENGTH * sizeof(uint8_t)) >= ALIGN_AMOUNT);
+        assert((this->METRIC_LENGTH * sizeof(uint8_t)) % ALIGN_AMOUNT == 0);
+        assert((this->METRIC_LENGTH * sizeof(uint8_t)) >= ALIGN_AMOUNT);
         // Branch table must be meet alignment requirements 
-        assert(branch_table.alignment % ALIGN_AMOUNT == 0);
-        assert(branch_table.alignment >= ALIGN_AMOUNT);
+        assert(this->branch_table.alignment % ALIGN_AMOUNT == 0);
+        assert(this->branch_table.alignment >= ALIGN_AMOUNT);
 
         assert(((uintptr_t)m128_symbols.data() % ALIGN_AMOUNT) == 0);
     }
@@ -58,28 +60,28 @@ public:
     inline
     void update(const int8_t* symbols, const size_t N) {
         // number of symbols must be a multiple of the code rate
-        assert(N % R == 0);
-        const size_t total_decoded_bits = N / R;
-        const size_t max_decoded_bits = get_traceback_length() + TOTAL_STATE_BITS;
+        assert(N % this->R == 0);
+        const size_t total_decoded_bits = N / this->R;
+        const size_t max_decoded_bits = this->get_traceback_length() + this->TOTAL_STATE_BITS;
         assert((total_decoded_bits + curr_decoded_bit) <= max_decoded_bits);
 
-        for (size_t s = 0; s < N; s+=R) {
-            auto* decision = get_decision(curr_decoded_bit);
-            auto* old_metric = get_old_metric();
-            auto* new_metric = get_new_metric();
+        for (size_t s = 0; s < N; s+=this->R) {
+            auto* decision = this->get_decision(this->curr_decoded_bit);
+            auto* old_metric = this->get_old_metric();
+            auto* new_metric = this->get_new_metric();
             bfly(&symbols[s], decision, old_metric, new_metric);
-            if (new_metric[0] >= config.renormalisation_threshold) {
+            if (new_metric[0] >= this->config.renormalisation_threshold) {
                 renormalise(new_metric);
             }
-            swap_metrics();
-            curr_decoded_bit++;
+            this->swap_metrics();
+            this->curr_decoded_bit++;
         }
     }
 private:
     inline
     void bfly(const int8_t* symbols, uint32_t* decision, uint8_t* old_metric, uint8_t* new_metric) 
     {
-        const __m128i* m128_branch_table = reinterpret_cast<const __m128i*>(branch_table.data());
+        const __m128i* m128_branch_table = reinterpret_cast<const __m128i*>(this->branch_table.data());
         __m128i* m128_old_metric = reinterpret_cast<__m128i*>(old_metric);
         __m128i* m128_new_metric = reinterpret_cast<__m128i*>(new_metric);
 
@@ -88,15 +90,15 @@ private:
         assert(((uintptr_t)m128_new_metric % ALIGN_AMOUNT) == 0);
 
         // Vectorise constants
-        for (size_t i = 0; i < R; i++) {
+        for (size_t i = 0; i < this->R; i++) {
             m128_symbols[i] = _mm_set1_epi8(symbols[i]);
         }
-        const __m128i max_error = _mm_set1_epi8(config.soft_decision_max_error);
+        const __m128i max_error = _mm_set1_epi8(this->config.soft_decision_max_error);
 
         for (size_t curr_state = 0u; curr_state < m128_width_branch_table; curr_state++) {
             // Total errors across R symbols
             __m128i total_error = _mm_set1_epi8(0);
-            for (size_t i = 0u; i < R; i++) {
+            for (size_t i = 0u; i < this->R; i++) {
                 __m128i error = _mm_subs_epi8(m128_branch_table[i*m128_width_branch_table+curr_state], m128_symbols[i]);
                 error = _mm_abs_epi8(error);
                 total_error = _mm_adds_epu8(total_error, error);
@@ -152,7 +154,7 @@ private:
         }
 
         // Keep track of absolute error metrics
-        renormalisation_bias += absolute_error_t(min);
+        this->renormalisation_bias += absolute_error_t(min);
     }
 };
 

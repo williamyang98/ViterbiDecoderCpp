@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <assert.h>
+#include <cstring>
 #include <new>
 
 // Wrap aligned allocator and deallocator calls in a RAII class

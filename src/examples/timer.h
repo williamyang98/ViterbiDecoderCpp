@@ -6,7 +6,7 @@
 class Timer 
 {
 private:
-    std::chrono::steady_clock::time_point dt_start;
+    std::chrono::time_point<std::chrono::high_resolution_clock> dt_start;
 public:
     Timer() {
         dt_start = std::chrono::high_resolution_clock::now();

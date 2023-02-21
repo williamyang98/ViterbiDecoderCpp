@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <limits>
 #include "viterbi/viterbi_decoder_core.h"
 
 template <typename soft_t, typename error_t>
