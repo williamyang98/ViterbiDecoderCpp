@@ -38,19 +38,19 @@ The library uses helper classes which can be replaced with your changes. These i
 - Parity check table
 
 # Benchmarks
-Benchmarks were run using <code>run_benchmarks.cpp</code>.
-
-The goal is to measure the relative speedup using SSE and AVX vectorised intrinsics code. 
-
-## Setup
 - <code>./run_benchmark.exe -c \<id\> -M \<mode\> -L \<input_length\> -T \<total_runs\></code>
-- Executed on an Intel i5-7200U connected to battery power and kept at 3.1GHz
+- The goal is to measure the relative speedup using SSE and AVX vectorised intrinsics code. 
 - 16bit performance was measured with soft decision decoding
 -  8bit performance was measured with hard decision decoding
 - No noise was added to the encoded symbols
 - Values are excluded from the table if it cannot be vectorised
 - Time values are measured in seconds
-- Speed up multipliers are provided in round brackets when vectorisation is possible
+- Speed up multiplier over scalar code is provided inside round brackets when vectorisation is possible
+
+## System Setup
+- Executed on an Intel i5-7200U connected to battery power and kept at 3.1GHz
+- MSVC: 19.32.31332 for x64
+- GCC: 11.3.0-1 ubuntu-22.04.2-LTS for WSL
 
 ## Results
 ### 1. MSVC + 16bit
