@@ -9,61 +9,20 @@
 
 // NOTE: Use these classes inside template parameters 
 //       so factory code is generated inside the function template
-
+template <size_t K, size_t R>
 class ViterbiDecoder_Factory_u16
 {
 public:
-    template <typename ... U>
-    static
-    auto get_scalar(U&& ... args) {
-        return ViterbiDecoder_Scalar<uint16_t,int16_t>(std::forward<U>(args)...);
-    }
-
-    template <typename ... U>
-    static
-    auto get_simd_sse(U&& ... args) {
-        return ViterbiDecoder_SSE_u16(std::forward<U>(args)...);
-    }
-
-    template <typename ... U>
-    static
-    auto get_simd_avx(U&& ... args) {
-        return ViterbiDecoder_AVX_u16(std::forward<U>(args)...);
-    }
-
-    static constexpr 
-    size_t K_simd_requirements[3] = {
-        0u,
-        ViterbiDecoder_SSE_u16<uint64_t>::K_min,
-        ViterbiDecoder_AVX_u16<uint64_t>::K_min
-    };
+    using Scalar = ViterbiDecoder_Scalar<K,R,uint16_t,int16_t>;
+    using SIMD_SSE = ViterbiDecoder_SSE_u16<K,R>;
+    using SIMD_AVX = ViterbiDecoder_AVX_u16<K,R>;
 };
 
+template <size_t K, size_t R>
 class ViterbiDecoder_Factory_u8
 {
 public:
-    template <typename ... U>
-    static
-    auto get_scalar(U&& ... args) {
-        return ViterbiDecoder_Scalar<uint8_t,int8_t>(std::forward<U>(args)...);
-    }
-
-    template <typename ... U>
-    static
-    auto get_simd_sse(U&& ... args) {
-        return ViterbiDecoder_SSE_u8(std::forward<U>(args)...);
-    }
-
-    template <typename ... U>
-    static
-    auto get_simd_avx(U&& ... args) {
-        return ViterbiDecoder_AVX_u8(std::forward<U>(args)...);
-    }
-
-    static constexpr 
-    size_t K_simd_requirements[3] = {
-        0u,
-        ViterbiDecoder_SSE_u8<uint64_t>::K_min,
-        ViterbiDecoder_AVX_u8<uint64_t>::K_min
-    };
+    using Scalar = ViterbiDecoder_Scalar<K,R,uint8_t,int8_t>;
+    using SIMD_SSE = ViterbiDecoder_SSE_u8<K,R>;
+    using SIMD_AVX = ViterbiDecoder_AVX_u8<K,R>;
 };

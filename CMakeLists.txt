@@ -10,6 +10,13 @@ endif()
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+add_executable(run_simple
+    ${SRC_DIR}/examples/run_simple.cpp  
+    ${SRC_DIR}/examples/getopt/getopt.c
+)
+target_include_directories(run_simple PUBLIC ${SRC_DIR} ${SRC_DIR}/examples)
+set_target_properties(run_simple PROPERTIES CXX_STANDARD 17)
+
 add_executable(run_decoder
     ${SRC_DIR}/examples/run_decoder.cpp  
     ${SRC_DIR}/examples/getopt/getopt.c

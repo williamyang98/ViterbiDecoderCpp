@@ -1,26 +1,32 @@
 # Introduction
 This is a C++ port of Phil Karn's Viterbi decoder which can be found [here](https://github.com/ka9q/libfec).
 
-Modifications include:
-- Runtime definable constraint length and code rate
-- Runtime definable initial state values and renormalisation threshold
-- Reusability of branch table for better memory usage
-- Intrinsic support for arbitary constraint lengths if they meet the alignment requirements
+See <code>src/examples/run_simple.cpp</code> for a common usage pattern.
 
-NOTE: The provided implementation is not aiming to be the fastest there is. It is designed to be relatively portable and easy to add into a C++ project. Changes are encouraged if your usage requirements demand more performance.
+Modifications include:
+- Templated parameters: constraint length and code rate
+- Runtime parameters: initial state values and renormalisation threshold
+- Reusability of branch table for better memory usage
+- Vectorisation using intrinsics for arbitary constraint lengths (where possible) for massive speedups
+
+Performance is similar to Phil Karn's original C implementation for provided decoders.
+
+Heavy templating is used in this library to provide the compiler as much information as possible about the decoder parameters. Testing has shown that compared to code that takes in the constraint length (K) and code rate (R) as runtime parameters [here](https://github.com/FiendChain/ViterbiDecoderCpp/tree/44cdd3c0a38a748a7084edeff859cf4d54ac911a), the templated version is up to 50% faster. This is because the compiler can perform more optimisations if the constraint length and code rate are known ahead of time.
 
 # Intrinsics support
 The following intrinsic implementations exist: 
 - 16bit error metrics and soft decision values
 - 8bit error metrics and soft decision values
 
-| Type | Requirements | Speedup |
+| Type | Requirements | Theoretical Speedup |
 | --- | --- | --- |
 | Scalar      | K >= 2 | 1x  |
 | SSE - 16bit | K >= 5 | 8x  |
 | AVX - 16bit | K >= 6 | 16x |
 | SSE - 8bit  | K >= 6 | 16x |
 | AVX - 8bit  | K >= 7 | 32x |
+
+Benchmarks show that the vectorised decoders have significiant speedups that can approach or supercede the theoretical values.
 
 # Further support
 Using the 16bit and 8bit based intrinsics implementations as a guide you can make your own intrinsics implementation that uses a different level of quantization.
@@ -30,68 +36,303 @@ You can port the x86 intrinsics implementation to ARM processors since the vecto
 # Custom modifications
 The library uses helper classes which can be replaced with your changes. These include:
 - Parity check table
-- Aligned malloc wrapper
-- Basic functions like min/max/clamp
 
 # Benchmarks
 Benchmarks were run using <code>run_benchmarks.cpp</code>.
-The input length was adjusted so that the scalar code would take a few seconds.
-The benchmark aims to measure the relative speedup using SSE and AVX vectorised intrinsics code.
 
-Values are excluded from the table if the convolutional code cannot be vectorised with intrinsics.
-
-The 16bit and 8bit scalar decoders take similar amounts of time. This means we can compare the speedup from using 8bit and 16bit vectorisations.
+The goal is to measure the relative speedup using SSE and AVX vectorised intrinsics code. 
 
 ## Setup
 - <code>./run_benchmark.exe -c \<id\> -M \<mode\> -L \<input_length\> -T \<total_runs\></code>
-- Benchmark was executed on an Intel i5-7200U connected to battery power and kept at 3.1GHz.
+- Executed on an Intel i5-7200U connected to battery power and kept at 3.1GHz
 - 16bit performance was measured with soft decision decoding
 -  8bit performance was measured with hard decision decoding
-- The code that is executed in the same with soft and hard decision decoding. Only the soft decision values and renormalisation threshold are different.
-- No noise was added to the encoded symbols since it is difficult to apply the same amount of noise to a soft decision value and a hard decision value.
-- Reasons why a comparison between 16bit and 8bit soft decision decoding is difficult:
-    - Renormalisation threshold varies depending on choice of soft decision values, which makes it usage dependent.
-    - Difficult to apply the same dB of noise to a 16bit and 8bit soft value due to extreme quantisation.
+- No noise was added to the encoded symbols
+- Values are excluded from the table if it cannot be vectorised
+- Time values are measured in seconds
+- Speed up multipliers are provided in round brackets when vectorisation is possible
 
-## 16bit performance
-| ID  | Name          |  K  |  R  | SSE  | AVX  | Input size | Total runs |
-| --- | ---           | --- | --- | ---  | ---  | ---  | ---  |
-|     |               |     |     |  8   | 16   |      |      |
-|   0 | Generic       |  3  |  2  | ---- | ---- | ---- | ---- |
-|   1 | Generic       |  5  |  2  |  6.5 | ---- | 8192 | 1000 |
-|   2 | Voyager       |  7  |  2  |  9.5 | 13.4 | 4096 | 1000 |
-|   3 | LTE           |  7  |  3  |  9.6 | 14.8 | 4096 | 1000 |
-|   4 | DAB Radio     |  7  |  4  |  9.3 | 15.6 | 2048 | 1000 |
-|   5 | CDMA IS-95A   |  9  |  2  | 11.1 | 18.5 | 2048 | 1000 |
-|   6 | CDMA 2000     |  9  |  4  | 10.6 | 18.7 | 2048 | 1000 |
-|   7 | Cassini       | 15  |  6  | 11.3 | 19.4 |  256 |  100 |
+## Results
+### 1. MSVC + 16bit
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>K</th>
+            <th>R</th>
+            <th>Input size</th>
+            <th>Total runs</th>
+            <th>Scalar</th>
+            <th>SSE</th>
+            <th>AVX</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>0</td><td>Generic</td><td>3</td><td>2</td><td>1024</td><td>50000</td>
+            <td>5.227</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>1</td><td>Generic</td><td>5</td><td>2</td><td>1024</td><td>10000</td>
+            <td>3.731</td>
+            <td>0.433 (8.6)</td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>2</td><td>Voyager</td><td>7</td><td>2</td><td>1024</td><td>5000</td>
+            <td>7.029</td>
+            <td>0.680 (10.3)</td>
+            <td>0.456 (15.4)</td>
+        </tr>
+        <tr>
+            <td>3</td><td>LTE</td><td>7</td><td>3</td><td>1024</td><td>2500</td>
+            <td>4.005</td>
+            <td>0.435 (9.2)</td>
+            <td>0.280 (14.3)</td>
+        </tr>
+        <tr>
+            <td>4</td><td>DAB Radio</td><td>7</td><td>4</td><td>1024</td><td>2500</td>
+            <td>4.510</td>
+            <td>0.422 (10.7)</td>
+            <td>0.274 (16.4)</td>
+        </tr>
+        <tr>
+            <td>5</td><td>CDMA IS-95A</td><td>9</td><td>2</td><td>1024</td><td>1000</td>
+            <td>5.406</td>
+            <td>0.497 (10.9)</td>
+            <td>0.285 (19.0)</td>
+        </tr>
+        <tr>
+            <td>6</td><td>CDMA 2000</td><td>9</td><td>4</td><td>1024</td><td>1000</td>
+            <td>6.745</td>
+            <td>0.735 (9.2)</td>
+            <td>0.371 (18.2)</td>
+        </tr>
+        <tr>
+            <td>7</td><td>Cassini</td><td>15</td><td>6</td><td>256</td><td>100</td>
+            <td>13.472</td>
+            <td>1.274 (10.6)</td>
+            <td>0.865 (15.6)</td>
+        </tr>
+    </tbody>
+</table>
 
-## 8bit performance
-| ID  | Name          |  K  |  R  | SSE  | AVX  | Input size | Total runs |
-| --- | ---           | --- | --- | ---  | ---  | ---  | ---  |
-|     |               |     |     |   16 | 32   |      |      |
-|   0 | Generic       |  3  |  2  | ---- | ---- | ---- | ---- |
-|   1 | Generic       |  5  |  2  | ---- | ---- | 8192 | 1000 |
-|   2 | Voyager       |  7  |  2  | 15.4 | 21.0 | 4096 | 1000 |
-|   3 | LTE           |  7  |  3  | 16.1 | 21.9 | 4096 | 1000 |
-|   4 | DAB Radio     |  7  |  4  | 16.4 | 22.6 | 4096 | 1000 |
-|   5 | CDMA IS-95A   |  9  |  2  | 19.2 | 30.2 | 2048 | 1000 |
-|   6 | CDMA 2000     |  9  |  4  | 20.1 | 29.0 | 2048 | 1000 |
-|   7 | Cassini       | 15  |  6  | 20.2 | 31.3 |  256 |  100 |
+### 2. GCC + 16bit
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>K</th>
+            <th>R</th>
+            <th>Input size</th>
+            <th>Total runs</th>
+            <th>Scalar</th>
+            <th>SSE</th>
+            <th>AVX</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>0</td><td>Generic</td><td>3</td><td>2</td><td>1024</td><td>50000</td>
+            <td>3.643</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>1</td><td>Generic</td><td>5</td><td>2</td><td>1024</td><td>10000</td>
+            <td>2.972</td>
+            <td>0.397 (7.5)</td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>2</td><td>Voyager</td><td>7</td><td>2</td><td>1024</td><td>5000</td>
+            <td>0.766</td>
+            <td>0.645 (1.2)</td>
+            <td>0.369 (2.1)</td>
+        </tr>
+        <tr>
+            <td>3</td><td>LTE</td><td>7</td><td>3</td><td>1024</td><td>2500</td>
+            <td>0.376</td>
+            <td>0.311 (1.2)</td>
+            <td>0.196 (1.9)</td>
+        </tr>
+        <tr>
+            <td>4</td><td>DAB Radio</td><td>7</td><td>4</td><td>1024</td><td>2500</td>
+            <td>0.412</td>
+            <td>0.340 (1.2)</td>
+            <td>0.221 (1.9)</td>
+        </tr>
+        <tr>
+            <td>5</td><td>CDMA IS-95A</td><td>9</td><td>2</td><td>1024</td><td>1000</td>
+            <td>5.033</td>
+            <td>0.420 (12.0)</td>
+            <td>0.238 (21.1)</td>
+        </tr>
+        <tr>
+            <td>6</td><td>CDMA 2000</td><td>9</td><td>4</td><td>1024</td><td>1000</td>
+            <td>5.936</td>
+            <td>0.628 (9.5)</td>
+            <td>0.378 (15.7)</td>
+        </tr>
+        <tr>
+            <td>7</td><td>Cassini</td><td>15</td><td>6</td><td>256</td><td>100</td>
+            <td>11.364</td>
+            <td>1.090 (10.4)</td>
+            <td>0.617 (18.4)</td>
+        </tr>
+    </tbody>
+</table>
+
+### 3. MSVC + 8bit
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>K</th>
+            <th>R</th>
+            <th>Input size</th>
+            <th>Total runs</th>
+            <th>Scalar</th>
+            <th>SSE</th>
+            <th>AVX</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>0</td><td>Generic</td><td>3</td><td>2</td><td>1024</td><td>50000</td>
+            <td>5.259</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>1</td><td>Generic</td><td>5</td><td>2</td><td>1024</td><td>10000</td>
+            <td>3.367</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>2</td><td>Voyager</td><td>7</td><td>2</td><td>1024</td><td>5000</td>
+            <td>7.020</td>
+            <td>0.501 (14.0)</td>
+            <td>0.301 (23.4)</td>
+        </tr>
+        <tr>
+            <td>3</td><td>LTE</td><td>7</td><td>3</td><td>1024</td><td>2500</td>
+            <td>3.966</td>
+            <td>0.232 (17.1)</td>
+            <td>0.156 (25.4)</td>
+        </tr>
+        <tr>
+            <td>4</td><td>DAB Radio</td><td>7</td><td>4</td><td>1024</td><td>2500</td>
+            <td>4.469</td>
+            <td>0.279 (16.0)</td>
+            <td>0.198 (22.6)</td>
+        </tr>
+        <tr>
+            <td>5</td><td>CDMA IS-95A</td><td>9</td><td>2</td><td>1024</td><td>1000</td>
+            <td>5.313</td>
+            <td>0.253 (21.0)</td>
+            <td>0.195 (27.3)</td>
+        </tr>
+        <tr>
+            <td>6</td><td>CDMA 2000</td><td>9</td><td>4</td><td>1024</td><td>1000</td>
+            <td>7.268</td>
+            <td>0.322 (22.6)</td>
+            <td>0.233 (31.2)</td>
+        </tr>
+        <tr>
+            <td>7</td><td>Cassini</td><td>15</td><td>6</td><td>256</td><td>100</td>
+            <td>14.104</td>
+            <td>0.692 (20.4)</td>
+            <td>0.450 (31.3)</td>
+        </tr>
+    </tbody>
+</table>
+
+### 4. GCC + 8bit
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>K</th>
+            <th>R</th>
+            <th>Input size</th>
+            <th>Total runs</th>
+            <th>Scalar</th>
+            <th>SSE</th>
+            <th>AVX</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>0</td><td>Generic</td><td>3</td><td>2</td><td>1024</td><td>50000</td>
+            <td>3.819</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>1</td><td>Generic</td><td>5</td><td>2</td><td>1024</td><td>10000</td>
+            <td>4.504</td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>2</td><td>Voyager</td><td>7</td><td>2</td><td>1024</td><td>5000</td>
+            <td>5.953</td>
+            <td>0.339 (17.6)</td>
+            <td>0.269 (22.2)</td>
+        </tr>
+        <tr>
+            <td>3</td><td>LTE</td><td>7</td><td>3</td><td>1024</td><td>2500</td>
+            <td>3.335</td>
+            <td>0.184 (18.1)</td>
+            <td>0.147 (22.7)</td>
+        </tr>
+        <tr>
+            <td>4</td><td>DAB Radio</td><td>7</td><td>4</td><td>1024</td><td>2500</td>
+            <td>3.680</td>
+            <td>0.197 (18.7)</td>
+            <td>0.142 (26.0)</td>
+        </tr>
+        <tr>
+            <td>5</td><td>CDMA IS-95A</td><td>9</td><td>2</td><td>1024</td><td>1000</td>
+            <td>5.198</td>
+            <td>0.231 (22.5)</td>
+            <td>0.149 (34.9)</td>
+        </tr>
+        <tr>
+            <td>6</td><td>CDMA 2000</td><td>9</td><td>4</td><td>1024</td><td>1000</td>
+            <td>6.236</td>
+            <td>0.293 (21.3)</td>
+            <td>0.172 (36.3)</td>
+        </tr>
+        <tr>
+            <td>7</td><td>Cassini</td><td>15</td><td>6</td><td>256</td><td>100</td>
+            <td>11.622</td>
+            <td>0.571 (20.3)</td>
+            <td>0.344 (33.8)</td>
+        </tr>
+    </tbody>
+</table>
 
 ## Analysis of performance
-- Both the 16bit and 8bit codes perform better when the contraint length increases
-- The 8bit AVX code doesn't scale as well as the 16bit AVX code relative to its SSE counterpart.
-- Even with the substandard scaling of 8bit AVX it is still a major speedup.
-- Running this code on newer CPUs indicates greater performance gains when using SSE or AVX vectorisation for both 8bit and 16bit.
+- The 8bit vectorised decoders are faster than the 16bit vectorised decoders of up to 2 times
+- GCC produces significantly faster code than MSVC
+- GCC will automatically vectorise 16bit scalar code for constraint lengths of 7. However the manual SSE vector code out performs it by 1.2x.
 
 # Additional notes
-- The implementations check if the parameters are valid using assert statements. This is for performance reasons as you usually use known parameters. You will need to add your own runtime checks if you are compiling without asserts.
-- The implementations are not ideal for performance since they make some tradeoffs. These include:
-    - Using unsigned integer types for error metrics for larger range of error values after renormalisation.
-    - Using saturated arithmetic in vectorised code to prevent unwanted overflows/underflows. This incurs up to a 33% speed penalty due to CPI increasing from 0.33 to 0.5 when moving from modular arithmetic.
-    - Keeping track of absolute error by accumulating bias adjustments when renormalising.
-    - Dynamic allocation for branch table and error metrics using runtime parameters.
+- The implementations uses template parameters and static asserts to: 
+    - Check if the provided constraint length and code rate meet the vectorisation requirements
+    - Generate aligned data structures and provide the compiler more information about the decoder for better optimisation
+- Performance improvements can be achieved with using signed integer types
+    - Using signed integer types allows for the use of modular arithmetic instead of saturated arithmetic. This can provide a up to a 33% speed boost due to CPI decreasing from 0.5 to 0.33.
+    - Unsigned integer types are used since they increase the range of error values after renormalisation, and saturated arithmetic will prevent overflows/underflows.
 - Unsigned 8bit error metrics have severe limitations. These include:
     - Limited range of soft decision values to avoid overflowing past the renormalisation threshold.
     - Higher code rates (such as Cassini) will quickly reach the renormalisation threshold and deteriorate in accuracy. This is because the maximum error for each branch is a multiple of the code rate.
@@ -102,11 +343,12 @@ The 16bit and 8bit scalar decoders take similar amounts of time. This means we c
     - This gives similar levels of accuracy to 16bit soft decision decoding but with up to 2x performance due to the usage of 8bit values.
 - Depending on your usage requirements changes to the library are absolutely encouraged
 - Additionally check out Phil Karn's fine tuned assembly code [here](https://github.com/ka9q/libfec) for the best possible performance 
-- This code is not heavily tested and your mileage may vary. This was written for personal usage.
+- This code is not considered heavily tested and your mileage may vary. This was written for personal usage.
 
 # Example code
 | Name | Description |
 | --- | --- |
+| run_simple | A simple and common decoder use pattern |
 | run_benchmark | Runs benchmark to compare performance between vectorisations |
 | run_decoder | Runs any arbitary decoder |
 | run_punctured_decoder | Implementation of DAB radio punctured decoding |

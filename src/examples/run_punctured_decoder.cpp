@@ -2,19 +2,20 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
+#include <inttypes.h>
 #include <vector>
 #include <random>
 #include <chrono>
 
-#include "puncture_code_helpers.h"
-#include "decoding_types.h"
-#include "decoding_modes.h"
+#include "viterbi/convolutional_encoder_lookup.h"
+
 #include "decoder_factories.h"
+#include "decoding_modes.h"
+#include "puncture_code_helpers.h"
 #include "test_helpers.h"
 #include "span.h"
 #include "getopt/getopt.h"
-
-#include "viterbi/convolutional_encoder_lookup.h"
 
 // DAB radio convolutional code
 // DOC: ETSI EN 300 401
@@ -166,7 +167,7 @@ int main(int argc, char** argv) {
         const float soft_noise_multiplier = 5.5f;
         const uint64_t soft_noise_level = uint64_t(normalised_noise_level * float(soft_decision.high) * soft_noise_multiplier);
         printf(">> Using soft_16 decoders\n");
-        run_test<ViterbiDecoder_Factory_u16>(
+        run_test<ViterbiDecoder_Factory_u16<K,R>>(
             config.decoder_config, 
             soft_decision, 
             soft_noise_level, true
@@ -182,7 +183,7 @@ int main(int argc, char** argv) {
         const float soft_noise_multiplier = 5.8f;
         const uint64_t soft_noise_level = uint64_t(normalised_noise_level * float(soft_decision.high) * soft_noise_multiplier);
         printf(">> Using soft_8 decoders\n");
-        run_test<ViterbiDecoder_Factory_u8>(
+        run_test<ViterbiDecoder_Factory_u8<K,R>>(
             config.decoder_config, 
             soft_decision, 
             soft_noise_level, true
@@ -197,7 +198,7 @@ int main(int argc, char** argv) {
         soft_decision.unpunctured = 0; 
         const uint64_t hard_noise_level = uint64_t(normalised_noise_level * 100.0f);
         printf(">> Using hard_8 decoders\n");
-        run_test<ViterbiDecoder_Factory_u8>(
+        run_test<ViterbiDecoder_Factory_u8<K,R>>(
             config.decoder_config, 
             soft_decision, 
             hard_noise_level, false
@@ -247,59 +248,51 @@ void run_test(
     }
 
     // decoding
-    const auto decode_type = get_fastest_simd_type(K, decoder_factory_t::K_simd_requirements);
-    size_t simd_alignment = sizeof(int16_t);
-    switch (decode_type) {
-    case DecodeType::SIMD_SSE: simd_alignment = 16u; break;
-    case DecodeType::SIMD_AVX: simd_alignment = 32u; break;
-    default:                                         break;
-    }
-    auto branch_table = ViterbiBranchTable<soft_t>(
-        K, R, G, 
-        soft_decision.high, soft_decision.low, 
-        simd_alignment
-    );
+    auto branch_table = ViterbiBranchTable<K,R,soft_t>(G, soft_decision.high, soft_decision.low);
 
-    if (decode_type >= DecodeType::SCALAR) {
-        auto vitdec = decoder_factory_t::get_scalar(branch_table, config);
+    if constexpr(decoder_factory_t::Scalar::is_valid) {
+        auto vitdec = typename decoder_factory_t::Scalar(branch_table, config);
         vitdec.set_traceback_length(total_data_bits);
         run_punctured_decoder(vitdec, soft_decision.unpunctured, output_symbols.data(), total_output_symbols);
-        const uint64_t traceback_error = vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
+        vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
+        const uint64_t traceback_error = vitdec.get_error();
         const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_data_bytes);
         const float bit_error_rate = (float)total_errors / (float)total_data_bits * 100.0f;
 
         printf("> Scalar results\n");
-        printf("traceback_error=%zu\n", traceback_error);
+        printf("traceback_error=%" PRIu64 "\n", traceback_error);
         printf("bit error rate=%.2f%%\n", bit_error_rate);
         printf("%zu/%zu incorrect bits\n", total_errors, total_data_bits);
         printf("\n");
     }
     
-    if (decode_type >= DecodeType::SIMD_SSE) {
-        auto vitdec = decoder_factory_t::get_simd_sse(branch_table, config);
+    if constexpr(decoder_factory_t::SIMD_SSE::is_valid) {
+        auto vitdec = typename decoder_factory_t::SIMD_SSE(branch_table, config);
         vitdec.set_traceback_length(total_data_bits);
         run_punctured_decoder(vitdec, soft_decision.unpunctured, output_symbols.data(), total_output_symbols);
-        const uint64_t traceback_error = vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
+        vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
+        const uint64_t traceback_error = vitdec.get_error();
         const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_data_bytes);
         const float bit_error_rate = (float)total_errors / (float)total_data_bits * 100.0f;
 
         printf("> SIMD_SSE results\n");
-        printf("traceback_error=%zu\n", traceback_error);
+        printf("traceback_error=%" PRIu64 "\n", traceback_error);
         printf("bit error rate=%.2f%%\n", bit_error_rate);
         printf("%zu/%zu incorrect bits\n", total_errors, total_data_bits);
         printf("\n");
     }
 
-    if (decode_type >= DecodeType::SIMD_AVX) {
-        auto vitdec = decoder_factory_t::get_simd_sse(branch_table, config);
+    if constexpr(decoder_factory_t::SIMD_AVX::is_valid) {
+        auto vitdec = typename decoder_factory_t::SIMD_AVX(branch_table, config);
         vitdec.set_traceback_length(total_data_bits);
         run_punctured_decoder(vitdec, soft_decision.unpunctured, output_symbols.data(), total_output_symbols);
-        const uint64_t traceback_error = vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
+        vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
+        const uint64_t traceback_error = vitdec.get_error();
         const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_data_bytes);
         const float bit_error_rate = (float)total_errors / (float)total_data_bits * 100.0f;
 
         printf("> SIMD_AVX results\n");
-        printf("traceback_error=%zu\n", traceback_error);
+        printf("traceback_error=%" PRIu64 "\n", traceback_error);
         printf("bit error rate=%.2f%%\n", bit_error_rate);
         printf("%zu/%zu incorrect bits\n", total_errors, total_data_bits);
         printf("\n");

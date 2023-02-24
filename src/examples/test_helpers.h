@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <vector>
 #include <random>
-#include "utility/basic_ops.h"
+#include "basic_ops.h"
 #include "bitcount_table.h"
 
 void generate_random_bytes(uint8_t* data, const size_t N) {

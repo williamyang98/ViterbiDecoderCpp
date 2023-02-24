@@ -12,7 +12,7 @@ public:
         dt_start = std::chrono::high_resolution_clock::now();
     } 
 
-    template <typename T = std::chrono::microseconds>
+    template <typename T = std::chrono::nanoseconds>
     uint64_t get_delta() {
         const auto dt_end = std::chrono::high_resolution_clock::now();
         const auto dt_delta = dt_end - dt_start;
