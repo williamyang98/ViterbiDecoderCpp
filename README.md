@@ -327,12 +327,17 @@ The library uses helper classes which can be replaced with your changes. These i
 - GCC will automatically vectorise 16bit scalar code for constraint lengths of 7. However the manual SSE vector code out performs it by 1.2x.
 
 # Additional notes
-- The implementations uses template parameters and static asserts to: 
-    - Check if the provided constraint length and code rate meet the vectorisation requirements
-    - Generate aligned data structures and provide the compiler more information about the decoder for better optimisation
+- **Performance improvements can be achieved with using [offset binary](https://en.wikipedia.org/wiki/Offset_binary)**
+    - Soft decision values take the form of offset binary given by: [-N,+N+1] -> [0,2N+1]
+    - The branch table needs to be in the range: [0,2N+1]
+    - Instead of performing a subtract then absolute, you can use an XOR operation which is much faster
+    - Refer to the [original Phil Karn code](https://github.com/ka9q/libfec/blob/7c6706fb969c3f8fe6ec7778b2472762e0d88acc/viterbi615_sse2.c#L128) for this improvement
 - Performance improvements can be achieved with using signed integer types
     - Using signed integer types allows for the use of modular arithmetic instead of saturated arithmetic. This can provide a up to a 33% speed boost due to CPI decreasing from 0.5 to 0.33.
     - Unsigned integer types are used since they increase the range of error values after renormalisation, and saturated arithmetic will prevent overflows/underflows.
+- The implementations uses template parameters and static asserts to: 
+    - Check if the provided constraint length and code rate meet the vectorisation requirements
+    - Generate aligned data structures and provide the compiler more information about the decoder for better optimisation
 - Unsigned 8bit error metrics have severe limitations. These include:
     - Limited range of soft decision values to avoid overflowing past the renormalisation threshold.
     - Higher code rates (such as Cassini) will quickly reach the renormalisation threshold and deteriorate in accuracy. This is because the maximum error for each branch is a multiple of the code rate.
