@@ -14,17 +14,19 @@ Performance is similar to Phil Karn's original C implementation for provided dec
 Heavy templating is used in this library to provide the compiler as much information as possible about the decoder parameters. Testing has shown that compared to code that takes in the constraint length (K) and code rate (R) as runtime parameters [here](https://github.com/FiendChain/ViterbiDecoderCpp/tree/44cdd3c0a38a748a7084edeff859cf4d54ac911a), the templated version is up to 50% faster. This is because the compiler can perform more optimisations if the constraint length and code rate are known ahead of time.
 
 # Intrinsics support
+AVX2 or SSE4.1 is expected to be supported by the processor.
+
 The following intrinsic implementations exist: 
 - 16bit error metrics and soft decision values
 - 8bit error metrics and soft decision values
 
 | Type | Requirements | Theoretical Speedup |
 | --- | --- | --- |
-| Scalar      | K >= 2 | 1x  |
-| SSE - 16bit | K >= 5 | 8x  |
-| AVX - 16bit | K >= 6 | 16x |
-| SSE - 8bit  | K >= 6 | 16x |
-| AVX - 8bit  | K >= 7 | 32x |
+| Scalar         | K >= 2 | 1x  |
+| SSE4.1 - 16bit | K >= 5 | 8x  |
+| SSE4.1 - 8bit  | K >= 6 | 16x |
+| AVX2 - 16bit   | K >= 6 | 16x |
+| AVX2 - 8bit    | K >= 7 | 32x |
 
 Benchmarks show that the vectorised decoders have significiant speedups that can approach or supercede the theoretical values.
 
