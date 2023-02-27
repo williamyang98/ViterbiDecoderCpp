@@ -83,7 +83,7 @@ private:
                 const soft_t sym = symbols[i];
                 const soft_t expected_sym = Base::branch_table[i][curr_state];
                 const soft_t error = expected_sym - sym;
-                const error_t abs_error = error_t(abs(error));
+                const error_t abs_error = error_t(this->abs(error));
                 total_error += abs_error;
             }
             assert(total_error <= Base::config.soft_decision_max_error);
@@ -132,5 +132,11 @@ private:
         }
 
         renormalisation_bias += absolute_error_t(min);
+    }
+
+    template <typename T>
+    inline 
+    T abs(T x) {
+        return (x > 0) ? x : -x;
     }
 };
