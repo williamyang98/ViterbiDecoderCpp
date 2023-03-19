@@ -101,12 +101,12 @@ int main(int argc, char** argv) {
     run_tests_on_codes<ViterbiDecoder_Factory_u8> (get_soft8_decoding_config,  global_results, DecodeType::SOFT8,  noise_level, true,  total_input_bytes);
     run_tests_on_codes<ViterbiDecoder_Factory_u8> (get_hard8_decoding_config,  global_results, DecodeType::HARD8,  noise_level, false, total_input_bytes);
 
-    const bool is_pass = (global_results.total_pass != global_results.total_tests);
+    const bool is_pass = (global_results.total_pass == global_results.total_tests);
     printf("\n\n");
     if (is_pass) {
-        printf(CONSOLE_RED);
-    } else {
         printf(CONSOLE_GREEN);
+    } else {
+        printf(CONSOLE_RED);
     }
     printf("PASSED %zu/%zu TESTS\n", global_results.total_pass, global_results.total_tests);
     printf(CONSOLE_RESET);
