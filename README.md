@@ -1,4 +1,7 @@
 # Introduction
+![windows-test](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/windows.yml/badge.svg)
+![linux-test](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/linux.yml/badge.svg)
+
 This is a C++ port of Phil Karn's Viterbi decoder which can be found [here](https://github.com/ka9q/libfec).
 
 **This is a header only library. Just copy and paste the header files to your desired location.**

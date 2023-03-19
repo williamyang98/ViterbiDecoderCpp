@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
         case 'h':
         default:
             usage();
-            return 0;
+            return 1;
         }
     }
 
@@ -111,7 +111,7 @@ int main(int argc, char** argv) {
     printf("PASSED %zu/%zu TESTS\n", global_results.total_pass, global_results.total_tests);
     printf(CONSOLE_RESET);
 
-    return 0;
+    return is_pass ? 0 : 1;
 }
 
 template <template <size_t, size_t> class factory_t, typename ... U>
