@@ -7,19 +7,19 @@
 #include <vector>
 #include <random>
 
-#include "viterbi/convolutional_encoder.h"
-#include "viterbi/convolutional_encoder_lookup.h"
-#include "viterbi/convolutional_encoder_shift_register.h"
+#include "convolutional_encoder.h"
+#include "convolutional_encoder_lookup.h"
+#include "convolutional_encoder_shift_register.h"
 
-#include "common_codes.h"
-#include "decoder_factories.h"
-#include "decoding_modes.h"
-#include "test_helpers.h"
-#include "timer.h"
+#include "helpers/common_codes.h"
+#include "helpers/decoder_factories.h"
+#include "helpers/decoder_configs.h"
+#include "helpers/test_helpers.h"
+#include "utility/timer.h"
 #include "getopt/getopt.h"
 
 constexpr int NOISE_MAX = 100;
-enum SelectedMode {
+enum DecodeType {
     SOFT16, SOFT8, HARD8
 };
 
@@ -120,14 +120,14 @@ int main(int argc, char** argv) {
     }
 
     // Update selected decode mode
-    auto selected_mode = SelectedMode::SOFT16;
+    auto selected_mode = DecodeType::SOFT16;
     if (mode_str != NULL) {
         if (strncmp(mode_str, "soft_16", 8) == 0) {
-            selected_mode = SelectedMode::SOFT16;
+            selected_mode = DecodeType::SOFT16;
         } else if (strncmp(mode_str, "soft_8", 7) == 0) {
-            selected_mode = SelectedMode::SOFT8;
+            selected_mode = DecodeType::SOFT8;
         } else if (strncmp(mode_str, "hard_8", 7) == 0) {
-            selected_mode = SelectedMode::HARD8;
+            selected_mode = DecodeType::HARD8;
         } else {
             fprintf(
                 stderr, 
@@ -140,9 +140,9 @@ int main(int argc, char** argv) {
     }
 
     switch (selected_mode) {
-    case SelectedMode::SOFT16: printf("Using soft_16 decoders\n"); break;
-    case SelectedMode::SOFT8:  printf("Using soft_8 decoders\n"); break;
-    case SelectedMode::HARD8:  printf("Using hard_8 decoders\n"); break;
+    case DecodeType::SOFT16: printf("Using soft_16 decoders\n"); break;
+    case DecodeType::SOFT8:  printf("Using soft_8 decoders\n"); break;
+    case DecodeType::HARD8:  printf("Using hard_8 decoders\n"); break;
     default:
         break; 
     }
@@ -150,11 +150,11 @@ int main(int argc, char** argv) {
     // Other arguments
     if (is_show_list) {
         switch (selected_mode) {
-        case SelectedMode::SOFT16:
+        case DecodeType::SOFT16:
             list_codes<ViterbiDecoder_Factory_u16>();
             break; 
-        case SelectedMode::SOFT8:
-        case SelectedMode::HARD8:
+        case DecodeType::SOFT8:
+        case DecodeType::HARD8:
             list_codes<ViterbiDecoder_Factory_u8>();
             break;
         default:
@@ -178,7 +178,7 @@ int main(int argc, char** argv) {
     }
 
     // NOTE: Hard decision decoding has hard upper limit on noise level
-    if (selected_mode == SelectedMode::HARD8) {
+    if (selected_mode == DecodeType::HARD8) {
         if ((noise_level < 0) || (noise_level > NOISE_MAX)) {
             fprintf(
                 stderr,
@@ -211,7 +211,7 @@ int main(int argc, char** argv) {
 
      // Select code
     switch (selected_mode) {
-    case SelectedMode::SOFT16:
+    case DecodeType::SOFT16:
         select_test<ViterbiDecoder_Factory_u16>(
             size_t(code_id), 
             get_soft16_decoding_config,
@@ -220,7 +220,7 @@ int main(int argc, char** argv) {
             size_t(total_runs)
         );
         break; 
-    case SelectedMode::SOFT8:
+    case DecodeType::SOFT8:
         select_test<ViterbiDecoder_Factory_u8>(
             size_t(code_id), 
             get_soft8_decoding_config,
@@ -229,7 +229,7 @@ int main(int argc, char** argv) {
             size_t(total_runs)
         );
         break;
-    case SelectedMode::HARD8:
+    case DecodeType::HARD8:
         select_test<ViterbiDecoder_Factory_u8>(
             size_t(code_id), 
             get_hard8_decoding_config,

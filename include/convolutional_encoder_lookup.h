@@ -1,8 +1,8 @@
 #pragma once
 #include "convolutional_encoder.h"
+#include "parity_table.h"
 #include <vector>
 #include <assert.h>
-#include "utility/parity_table.h"
 
 // Convolutional encoder that uses a lookup table to process per byte
 // NOTE: For codes such as Cassini (K=15) which have large constraint lengths

@@ -31,6 +31,13 @@ template <
 class ViterbiDecoder_Core
 {
 private:
+    template <typename T>
+    static constexpr
+    T get_max(T x0, T x1) { 
+        return (x0 > x1) ? x0 : x1; 
+    }
+
+    // NOTE: Give the error metrics the best alignment for vectorisation
     static constexpr 
     size_t get_alignment(const size_t x) {
         if (x % 32 == 0) {
@@ -48,7 +55,7 @@ protected:
     static constexpr size_t DECISIONTYPE_BITSIZE = sizeof(decision_bits_t) * 8u;
     static constexpr size_t NUMSTATES = size_t(1u) << (K-1u);
     static constexpr size_t TOTAL_STATE_BITS = K-1u;
-    static constexpr size_t DECISION_BITS_LENGTH = (NUMSTATES/DECISIONTYPE_BITSIZE > size_t(1u)) ? (NUMSTATES/DECISIONTYPE_BITSIZE) : size_t(1u);
+    static constexpr size_t DECISION_BITS_LENGTH = get_max(NUMSTATES/DECISIONTYPE_BITSIZE, size_t(1u));
     static constexpr size_t METRIC_LENGTH = NUMSTATES;
     static constexpr size_t METRIC_ALIGNMENT = get_alignment(sizeof(error_t)*METRIC_LENGTH);
 
@@ -60,12 +67,12 @@ protected:
         decision_bits_t buf[DECISION_BITS_LENGTH];
     };
 
-    const ViterbiBranchTable<K,R,soft_t>& branch_table;   // we can reuse an existing branch table
+    const ViterbiBranchTable<K,R,soft_t>& branch_table;     // we can reuse an existing branch table
     const ViterbiDecoder_Config<error_t> config;
 
     ALIGNED(METRIC_ALIGNMENT) metric_t metrics[2];
-    size_t curr_metric_index;                   // 0/1 to swap old and new metrics
-    std::vector<decision_branch_t> decisions;     // shape: (TRACEBACK_LENGTH x DECISION_BITS_LENGTH)
+    size_t curr_metric_index;                               // 0/1 to swap old and new metrics
+    std::vector<decision_branch_t> decisions;               // shape: (TRACEBACK_LENGTH x DECISION_BITS_LENGTH)
     size_t curr_decoded_bit;
 public:
     ViterbiDecoder_Core(

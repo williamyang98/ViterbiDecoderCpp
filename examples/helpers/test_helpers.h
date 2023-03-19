@@ -1,12 +1,12 @@
 #pragma once
 
-#include "viterbi/convolutional_encoder.h"
+#include "convolutional_encoder.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <vector>
 #include <random>
-#include "basic_ops.h"
-#include "bitcount_table.h"
+#include "utility/basic_ops.h"
+#include "utility/bitcount_table.h"
 
 void generate_random_bytes(uint8_t* data, const size_t N) {
     for (size_t i = 0u; i < N; i++) {

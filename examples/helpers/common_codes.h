@@ -31,30 +31,30 @@ struct {
     const size_t N = 8;
 } common_codes;
 
-enum DecodeType {
+enum SIMD_Type {
     SCALAR=0, SIMD_SSE=1, SIMD_AVX=2
 };
 
 template <class decoder_factory_t>
 constexpr 
-DecodeType get_fastest_decode_type() {
+SIMD_Type get_fastest_simd_type() {
     if constexpr(decoder_factory_t::SIMD_AVX::is_valid) {
-        return DecodeType::SIMD_AVX;
+        return SIMD_Type::SIMD_AVX;
     } else if constexpr(decoder_factory_t::SIMD_SSE::is_valid) {
-        return DecodeType::SIMD_SSE;
+        return SIMD_Type::SIMD_SSE;
     } else if constexpr(decoder_factory_t::Scalar::is_valid) {
-        return DecodeType::SCALAR;
+        return SIMD_Type::SCALAR;
     } else {
         // static_assert(false, "No valid decoder in decoder factory");
     }
 };
 
 constexpr 
-const char* get_decode_type_string(const DecodeType decode_type) {
-    switch (decode_type) {
-    case DecodeType::SCALAR:   return "SCALAR";
-    case DecodeType::SIMD_SSE: return "SIMD_SSE";
-    case DecodeType::SIMD_AVX: return "SIMD_AVX";
+const char* get_simd_type_string(const SIMD_Type simd_type) {
+    switch (simd_type) {
+    case SIMD_Type::SCALAR:   return "SCALAR";
+    case SIMD_Type::SIMD_SSE: return "SIMD_SSE";
+    case SIMD_Type::SIMD_AVX: return "SIMD_AVX";
     default:                   return "UNKNOWN";
     }
 }
@@ -65,8 +65,8 @@ void print_code(const Code<K,R,code_t>& code, const size_t id, const size_t max_
     printf("%2zu | %*s | %2zu %2zu | ", id, (int)max_name_length, code.name, K, R);
 
     // default decode type
-    constexpr auto decode_type = get_fastest_decode_type<decoder_factory_t<K,R>>();
-    constexpr const char* decode_name = get_decode_type_string(decode_type);
+    constexpr auto simd_type = get_fastest_simd_type<decoder_factory_t<K,R>>();
+    constexpr const char* decode_name = get_simd_type_string(simd_type);
     printf("%*s", 8, decode_name);
     printf(" | ");
     

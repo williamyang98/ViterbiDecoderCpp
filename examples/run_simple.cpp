@@ -4,19 +4,19 @@
 #include <vector>
 #include <limits>
 
-#include "viterbi/convolutional_encoder_lookup.h"
-#include "viterbi/viterbi_decoder_scalar.h"
-#include "viterbi/viterbi_decoder_sse_u16.h"
-#include "viterbi/viterbi_decoder_avx_u16.h"
+#include "convolutional_encoder_lookup.h"
+#include "viterbi_decoder_scalar.h"
+#include "viterbi_decoder_sse_u16.h"
+#include "viterbi_decoder_avx_u16.h"
 
-#include "test_helpers.h"
+#include "helpers/test_helpers.h"
 
 constexpr size_t K = 7;
 constexpr size_t R = 4;
 const uint8_t G[R] = { 109, 79, 83, 109 };
 
 // NOTE: Other example code uses alot of templating to select different viterbi decoders at runtime
-//       This example serves to demonstrate a simple use of the library if you just need one decoder
+//       This example serves to demonstrate a simple use of the library if you just need one decoder type
 int main(int argc, char** argv) {
     // We are encoding each symbols as a 16bit value between -127 and +127
     const int16_t soft_decision_high = +127;

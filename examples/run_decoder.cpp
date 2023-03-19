@@ -8,17 +8,17 @@
 #include <random>
 #include <chrono>
 
-#include "viterbi/convolutional_encoder.h"
-#include "viterbi/convolutional_encoder_shift_register.h"
+#include "convolutional_encoder.h"
+#include "convolutional_encoder_shift_register.h"
 
-#include "common_codes.h"
-#include "decoding_modes.h"
-#include "decoder_factories.h"
-#include "test_helpers.h"
+#include "helpers/common_codes.h"
+#include "helpers/decoder_configs.h"
+#include "helpers/decoder_factories.h"
+#include "helpers/test_helpers.h"
 #include "getopt/getopt.h"
 
 constexpr int NOISE_MAX = 100;
-enum SelectedMode {
+enum DecodeType {
     SOFT16, SOFT8, HARD8
 };
 
@@ -32,7 +32,7 @@ template <template <size_t, size_t> class factory_t, size_t K, size_t R, typenam
 void init_test(
     const Code<K,R>& code, 
     Decoder_Config<soft_t,error_t>(*config_factory)(const size_t),
-    const DecodeType decode_type,
+    const SIMD_Type decode_type,
     const uint64_t noise_level, const bool is_soft_noise,
     const size_t total_input_bytes 
 );
@@ -114,14 +114,14 @@ int main(int argc, char** argv) {
     }
 
     // Update selected decode mode
-    auto selected_mode = SelectedMode::SOFT16;
+    auto selected_mode = DecodeType::SOFT16;
     if (mode_str != NULL) {
         if (strncmp(mode_str, "soft_16", 8) == 0) {
-            selected_mode = SelectedMode::SOFT16;
+            selected_mode = DecodeType::SOFT16;
         } else if (strncmp(mode_str, "soft_8", 7) == 0) {
-            selected_mode = SelectedMode::SOFT8;
+            selected_mode = DecodeType::SOFT8;
         } else if (strncmp(mode_str, "hard_8", 7) == 0) {
-            selected_mode = SelectedMode::HARD8;
+            selected_mode = DecodeType::HARD8;
         } else {
             fprintf(
                 stderr, 
@@ -134,9 +134,9 @@ int main(int argc, char** argv) {
     }
 
     switch (selected_mode) {
-    case SelectedMode::SOFT16: printf("Using soft_16 decoders\n"); break;
-    case SelectedMode::SOFT8:  printf("Using soft_8 decoders\n"); break;
-    case SelectedMode::HARD8:  printf("Using hard_8 decoders\n"); break;
+    case DecodeType::SOFT16: printf("Using soft_16 decoders\n"); break;
+    case DecodeType::SOFT8:  printf("Using soft_8 decoders\n"); break;
+    case DecodeType::HARD8:  printf("Using hard_8 decoders\n"); break;
     default:
         break; 
     }
@@ -144,11 +144,11 @@ int main(int argc, char** argv) {
     // Other arguments
     if (is_show_list) {
         switch (selected_mode) {
-        case SelectedMode::SOFT16:
+        case DecodeType::SOFT16:
             list_codes<ViterbiDecoder_Factory_u16>();
             break; 
-        case SelectedMode::SOFT8:
-        case SelectedMode::HARD8:
+        case DecodeType::SOFT8:
+        case DecodeType::HARD8:
             list_codes<ViterbiDecoder_Factory_u8>();
             break;
         default:
@@ -175,7 +175,7 @@ int main(int argc, char** argv) {
     }
 
     // NOTE: Hard decision decoding has hard upper limit on noise level
-    if (selected_mode == SelectedMode::HARD8) {
+    if (selected_mode == DecodeType::HARD8) {
         if ((noise_level < 0) || (noise_level > NOISE_MAX)) {
             fprintf(
                 stderr,
@@ -191,14 +191,14 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    auto decode_type = DecodeType::SIMD_AVX;
+    auto decode_type = SIMD_Type::SIMD_AVX;
     if (decode_type_str != NULL) {
         if (strncmp(decode_type_str, "scalar", 8) == 0) {
-            decode_type = DecodeType::SCALAR;
+            decode_type = SIMD_Type::SCALAR;
         } else if (strncmp(decode_type_str, "sse", 7) == 0) {
-            decode_type = DecodeType::SIMD_SSE;
+            decode_type = SIMD_Type::SIMD_SSE;
         } else if (strncmp(decode_type_str, "avx", 7) == 0) {
-            decode_type = DecodeType::SIMD_AVX;
+            decode_type = SIMD_Type::SIMD_AVX;
         } else {
             fprintf(
                 stderr, 
@@ -222,7 +222,7 @@ int main(int argc, char** argv) {
 
     // Select code
     switch (selected_mode) {
-    case SelectedMode::SOFT16:
+    case DecodeType::SOFT16:
         select_test<ViterbiDecoder_Factory_u16>(
             size_t(code_id), 
             get_soft16_decoding_config,
@@ -231,7 +231,7 @@ int main(int argc, char** argv) {
             size_t(total_input_bytes)
         );
         break; 
-    case SelectedMode::SOFT8:
+    case DecodeType::SOFT8:
         select_test<ViterbiDecoder_Factory_u8>(
             size_t(code_id), 
             get_soft8_decoding_config,
@@ -240,7 +240,7 @@ int main(int argc, char** argv) {
             size_t(total_input_bytes)
         );
         break;
-    case SelectedMode::HARD8:
+    case DecodeType::HARD8:
         select_test<ViterbiDecoder_Factory_u8>(
             size_t(code_id), 
             get_hard8_decoding_config,
@@ -277,7 +277,7 @@ template <template <size_t, size_t> class factory_t, size_t K, size_t R, typenam
 void init_test(
     const Code<K,R>& code, 
     Decoder_Config<soft_t,error_t>(*config_factory)(const size_t),
-    const DecodeType decode_type,
+    const SIMD_Type decode_type,
     const uint64_t noise_level, const bool is_soft_noise,
     const size_t total_input_bytes 
 ) {
@@ -288,7 +288,7 @@ void init_test(
     auto branch_table = ViterbiBranchTable<K,R,soft_t>(code.G.data(), config.soft_decision_high, config.soft_decision_low);
 
     // Run decoder
-    if (decode_type >= DecodeType::SIMD_AVX) {
+    if (decode_type >= SIMD_Type::SIMD_AVX) {
         if constexpr(factory_t<K,R>::SIMD_AVX::is_valid) {
             printf("Using SIMD_AVX decoder\n");
             auto vitdec = typename factory_t<K,R>::SIMD_AVX(branch_table, config.decoder_config);
@@ -304,7 +304,7 @@ void init_test(
         }
     }
 
-    if (decode_type >= DecodeType::SIMD_SSE) {
+    if (decode_type >= SIMD_Type::SIMD_SSE) {
         if constexpr(factory_t<K,R>::SIMD_SSE::is_valid) {
             printf("Using SIMD_SSE decoder\n");
             auto vitdec = typename factory_t<K,R>::SIMD_SSE(branch_table, config.decoder_config);
@@ -320,7 +320,7 @@ void init_test(
         }
     }
 
-    if (decode_type >= DecodeType::SCALAR) {
+    if (decode_type >= SIMD_Type::SCALAR) {
         if constexpr(factory_t<K,R>::Scalar::is_valid) {
             printf("Using SCALAR decoder\n");
             auto vitdec = typename factory_t<K,R>::Scalar(branch_table, config.decoder_config);

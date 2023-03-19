@@ -1,9 +1,9 @@
 #pragma once
 
+#include "parity_table.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <assert.h>
-#include "utility/parity_table.h"
 
 #ifdef _MSC_VER
 #define ALIGNED(x) __declspec(align(x))
@@ -11,12 +11,13 @@
 #define ALIGNED(x) __attribute__ ((aligned(x)))
 #endif
 
-// If the same parameters are used for the viterbi decoder
-// We can reuse the branch table for better memory usage
+// Store a table of the soft decision values of the encoded symbol for each possible state and input
+// If the same parameters are used for the viterbi decoder we can reuse the branch table for better memory usage
 template <size_t constraint_length, size_t code_rate, typename soft_t>
 class ViterbiBranchTable 
 {
 private:
+    // NOTE: Give the branch table the best alignment for vectorisation
     static constexpr 
     size_t get_alignment(const size_t x) {
         if (x % 32 == 0) {
@@ -43,7 +44,7 @@ public:
     // NOTE: Polynomials (G) should be in binary form with least signficant bit corresponding to the input bit
     template <typename code_t>
     ViterbiBranchTable(
-        const code_t* G,                        // length = code_rate
+        const code_t* G,                        // number of polynomials is the code_rate
         const soft_t _soft_decision_high,
         const soft_t _soft_decision_low)
     :   soft_decision_high(_soft_decision_high),
@@ -70,7 +71,9 @@ public:
         return &branch_table[index].buf[0];
     }
 
-    auto data() const { return &branch_table[0].buf[0]; }
+    auto data() const { 
+        return &branch_table[0].buf[0]; 
+    }
 private:
     template <typename code_t>
     void calculate_branch_table(const code_t* G) {

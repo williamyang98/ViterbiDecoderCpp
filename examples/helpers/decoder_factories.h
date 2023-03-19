@@ -1,11 +1,11 @@
 #pragma once
 #include <stdint.h>
 
-#include "viterbi/viterbi_decoder_scalar.h"
-#include "viterbi/viterbi_decoder_sse_u16.h"
-#include "viterbi/viterbi_decoder_avx_u16.h"
-#include "viterbi/viterbi_decoder_sse_u8.h"
-#include "viterbi/viterbi_decoder_avx_u8.h"
+#include "viterbi_decoder_scalar.h"
+#include "viterbi_decoder_sse_u16.h"
+#include "viterbi_decoder_avx_u16.h"
+#include "viterbi_decoder_sse_u8.h"
+#include "viterbi_decoder_avx_u8.h"
 
 // NOTE: Use these classes inside template parameters 
 //       so factory code is generated inside the function template

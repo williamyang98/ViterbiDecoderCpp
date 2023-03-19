@@ -1,10 +1,10 @@
 #pragma once
 #include "convolutional_encoder.h"
+#include "parity_table.h"
+#include <vector>
 #include <stdint.h>
 #include <stddef.h>
 #include <assert.h>
-#include <vector>
-#include "utility/parity_table.h"
 
 // Convolutional encoder that uses a shift register
 template <typename reg_t = uint16_t>

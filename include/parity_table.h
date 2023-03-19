@@ -4,6 +4,7 @@
 
 // Check if there are an even or odd number of 1s
 // Odd = 1, Even = 0
+// NOTE: This is just a helper and can be replaced if you have your own version
 class ParityTable 
 {
 private:

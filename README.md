@@ -1,13 +1,13 @@
 # Introduction
 This is a C++ port of Phil Karn's Viterbi decoder which can be found [here](https://github.com/ka9q/libfec).
 
-See <code>src/examples/run_simple.cpp</code> for a common usage pattern.
+See <code>examples/run_simple.cpp</code> for a common usage pattern.
 
 Modifications include:
 - Templated parameters: constraint length and code rate
 - Runtime parameters: initial state values and renormalisation threshold
 - Reusability of branch table for better memory usage
-- Vectorisation using intrinsics for arbitary constraint lengths (where possible) for massive speedups
+- Vectorisation using intrinsics for arbitary constraint lengths (where possible) for significant speedups
 
 Performance is similar to Phil Karn's original C implementation for provided decoders.
 
@@ -357,14 +357,6 @@ The library uses helper classes which can be replaced with your changes. These i
 - Depending on your usage requirements changes to the library are absolutely encouraged
 - Additionally check out Phil Karn's fine tuned assembly code [here](https://github.com/ka9q/libfec) for the best possible performance 
 - This code is not considered heavily tested and your mileage may vary. This was written for personal usage.
-
-# Example code
-| Name | Description |
-| --- | --- |
-| run_simple | A simple and common decoder use pattern |
-| run_benchmark | Runs benchmark to compare performance between vectorisations |
-| run_decoder | Runs any arbitary decoder |
-| run_punctured_decoder | Implementation of DAB radio punctured decoding |
 
 # Useful alternatives
 - [Spiral project](https://www.spiral.net/software/viterbi.html) aims to auto-generate high performance code for any input parameters

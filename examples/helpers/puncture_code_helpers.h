@@ -4,8 +4,8 @@
 #include <stddef.h>
 #include <assert.h>
 #include <vector>
-#include "viterbi/convolutional_encoder.h"
-#include "basic_ops.h"
+#include "convolutional_encoder.h"
+#include "utility/basic_ops.h"
 
 // Reads symbols and depunctured the number of requested symbols
 template <typename decoder_t, typename soft_t, typename input_t = soft_t>

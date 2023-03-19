@@ -8,13 +8,13 @@
 #include <random>
 #include <chrono>
 
-#include "viterbi/convolutional_encoder_lookup.h"
+#include "convolutional_encoder_lookup.h"
 
-#include "decoder_factories.h"
-#include "decoding_modes.h"
-#include "puncture_code_helpers.h"
-#include "test_helpers.h"
-#include "span.h"
+#include "helpers/decoder_factories.h"
+#include "helpers/decoder_configs.h"
+#include "helpers/puncture_code_helpers.h"
+#include "helpers/test_helpers.h"
+#include "utility/span.h"
 #include "getopt/getopt.h"
 
 // DAB radio convolutional code
