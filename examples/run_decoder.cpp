@@ -61,7 +61,7 @@ void usage() {
         #if defined(VITERBI_SIMD_X86)
         "        sse:    128bit vectorisation\n"
         "        avx:    256bit vectorisation\n"
-        #elif defined(VITERBI_SIMD_NEON)
+        #elif defined(VITERBI_SIMD_ARM)
         "        neon:   128bit vectorisation\n"
         #endif
         "    [-n <noise level> (default: 0)]\n"
