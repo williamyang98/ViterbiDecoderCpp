@@ -98,11 +98,11 @@ int main(int argc, char** argv) {
             decode_type_str = optarg;
             break;
         case 'n':
-            is_randomise_seed = false;
             noise_level = atoi(optarg);
             break;
         case 's':
-            is_randomise_seed = true;
+            is_randomise_seed = false;
+            random_seed = atoi(optarg);
             break;
         case 'L':
             total_input_bytes = atoi(optarg);
