@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
     assert(N_max > 0u);
 
 	int opt; 
-    while ((opt = getopt_custom(argc, argv, "c:M:d:n:s:L:lh")) != -1) {
+    while ((opt = getopt_custom(argc, argv, "h")) != -1) {
         switch (opt) {
         case 'h':
         default:

@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
             is_randomise_seed = false;
             noise_level = atoi(optarg);
             break;
-        case 'S':
+        case 's':
             is_randomise_seed = true;
             break;
         case 'L':
