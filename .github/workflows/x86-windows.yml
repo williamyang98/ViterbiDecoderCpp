@@ -1,4 +1,4 @@
-name: windows
+name: x86-windows
 
 on:
   push:

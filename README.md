@@ -1,6 +1,7 @@
 # Introduction
-![windows-test](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/windows.yml/badge.svg)
-![linux-test](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/linux.yml/badge.svg)
+![x86-windows-test](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/x86-windows.yml/badge.svg)
+![x86-linux-test](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/x86-linux.yml/badge.svg)
+![arm-linux-test](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/arm-linux.yml/badge.svg)
 
 This is a C++ port of Phil Karn's Viterbi decoder which can be found [here](https://github.com/ka9q/libfec).
 
@@ -19,7 +20,9 @@ Performance is similar to Phil Karn's original C implementation for provided dec
 Heavy templating is used for better performance. Compared to code that uses constraint length (K) and code rate (R) as runtime parameters [here](https://github.com/FiendChain/ViterbiDecoderCpp/tree/44cdd3c0a38a748a7084edeff859cf4d54ac911a), the templated version is up to 50% faster. This is because the compiler can perform more optimisations if the constraint length and code rate are known ahead of time.
 
 # Intrinsics support
-AVX2 or SSE4.1 is expected to be supported by the processor.
+For x86 processors AVX2 or SSE4.1 is required for vectorisation.
+
+For arm processors aarch64 is required for vectorisation.
 
 The following intrinsic implementations exist: 
 - 16bit error metrics and soft decision values
@@ -35,14 +38,41 @@ The following intrinsic implementations exist:
 
 Benchmarks show that the vectorised decoders have significiant speedups that can approach or supercede the theoretical values.
 
-# Further support
-Using the 16bit and 8bit based intrinsics implementations as a guide you can make your own intrinsics implementation that uses a different level of quantization.
+Using the 16bit and 8bit based intrinsics implementations as a guide you can make your own intrinsics implementation.
 
-You can port the x86 intrinsics implementation to ARM processors since the vector instructions are similiar to NEON.
+# Additional notes
+- **Significant performance improvements can be achieved with using [offset binary](https://en.wikipedia.org/wiki/Offset_binary)**
+    - Soft decision values take the form of offset binary given by: 0 to N
+    - The branch table needs values: 0 and N
+    - Instead of performing a subtract then absolute, you can use an XOR operation which behaves like conditional negation
+    - Refer to the [original Phil Karn code](https://github.com/ka9q/libfec/blob/7c6706fb969c3f8fe6ec7778b2472762e0d88acc/viterbi615_sse2.c#L128) for this improvement
+    - Explanation with example
+        - Branch table has values: 0 or 255
+        - Soft decision values in offset binary: 0 to 255
+        - Consider a soft decision value of x
+        - If branch value is 0, XOR will return x
+        - If branch value is 255, XOR will return 255-x
+- Performance improvements can be achieved with using signed integer types
+    - Using signed integer types allows for the use of modular arithmetic instead of saturated arithmetic. This can provide a up to a 33% speed boost due to CPI decreasing from 0.5 to 0.33.
+    - Unsigned integer types are used since they increase the range of error values after renormalisation, and saturated arithmetic will prevent overflows/underflows.
+- The implementations uses template parameters and static asserts to: 
+    - Check if the provided constraint length and code rate meet the vectorisation requirements
+    - Generate aligned data structures and provide the compiler more information about the decoder for better optimisation
+- Unsigned 8bit error metrics have severe limitations. These include:
+    - Limited range of soft decision values to avoid overflowing past the renormalisation threshold.
+    - Higher code rates (such as Cassini) will quickly reach the renormalisation threshold and deteriorate in accuracy. This is because the maximum error for each branch is a multiple of the code rate.
+- If you are only interested in hard decision decoding then using 8bit error metrics is the better choice
+    - Use hard decision values [-1,+1] of type int8_t
+    - Due to the small maximum branch error of 2*R we can set the renormalisation threshold to be quite high. 
+    - <code>renormalisation_threshold = UINT8_MAX - (2\*R\*10)</code>
+    - This gives similar levels of accuracy to 16bit soft decision decoding but with up to 2x performance due to the usage of 8bit values.
+- Depending on your usage requirements changes to the library are absolutely encouraged
+- Additionally check out Phil Karn's fine tuned assembly code [here](https://github.com/ka9q/libfec) for the best possible performance 
+- This code is not considered heavily tested and your mileage may vary. This was written for personal usage.
 
-# Custom modifications
-The library uses helper classes which can be replaced with your changes. These include:
-- Parity check table
+# Useful alternatives
+- [Spiral project](https://www.spiral.net/software/viterbi.html) aims to auto-generate high performance code for any input parameters
+- [ka9q/libfec](https://github.com/ka9q/libfec) is Phil Karn's original C implementation
 
 # Benchmarks
 - <code>./run_benchmark.exe -c \<id\> -M \<mode\> -L \<input_length\> -T \<total_runs\></code>
@@ -332,37 +362,3 @@ The library uses helper classes which can be replaced with your changes. These i
 - The 8bit vectorised decoders are faster than the 16bit vectorised decoders of up to 2 times
 - GCC produces significantly faster code than MSVC
 - GCC will automatically vectorise 16bit scalar code for constraint lengths of 7. However the manual SSE vector code out performs it by 1.2x.
-
-# Additional notes
-- **Significant performance improvements can be achieved with using [offset binary](https://en.wikipedia.org/wiki/Offset_binary)**
-    - Soft decision values take the form of offset binary given by: 0 to N
-    - The branch table needs values: 0 and N
-    - Instead of performing a subtract then absolute, you can use an XOR operation which behaves like conditional negation
-    - Refer to the [original Phil Karn code](https://github.com/ka9q/libfec/blob/7c6706fb969c3f8fe6ec7778b2472762e0d88acc/viterbi615_sse2.c#L128) for this improvement
-    - Explanation with example
-        - Branch table has values: 0 or 255
-        - Soft decision values in offset binary: 0 to 255
-        - Consider a soft decision value of x
-        - If branch value is 0, XOR will return x
-        - If branch value is 255, XOR will return 255-x
-- Performance improvements can be achieved with using signed integer types
-    - Using signed integer types allows for the use of modular arithmetic instead of saturated arithmetic. This can provide a up to a 33% speed boost due to CPI decreasing from 0.5 to 0.33.
-    - Unsigned integer types are used since they increase the range of error values after renormalisation, and saturated arithmetic will prevent overflows/underflows.
-- The implementations uses template parameters and static asserts to: 
-    - Check if the provided constraint length and code rate meet the vectorisation requirements
-    - Generate aligned data structures and provide the compiler more information about the decoder for better optimisation
-- Unsigned 8bit error metrics have severe limitations. These include:
-    - Limited range of soft decision values to avoid overflowing past the renormalisation threshold.
-    - Higher code rates (such as Cassini) will quickly reach the renormalisation threshold and deteriorate in accuracy. This is because the maximum error for each branch is a multiple of the code rate.
-- If you are only interested in hard decision decoding then using 8bit error metrics is the better choice
-    - Use hard decision values [-1,+1] of type int8_t
-    - Due to the small maximum branch error of 2*R we can set the renormalisation threshold to be quite high. 
-    - <code>renormalisation_threshold = UINT8_MAX - (2\*R\*10)</code>
-    - This gives similar levels of accuracy to 16bit soft decision decoding but with up to 2x performance due to the usage of 8bit values.
-- Depending on your usage requirements changes to the library are absolutely encouraged
-- Additionally check out Phil Karn's fine tuned assembly code [here](https://github.com/ka9q/libfec) for the best possible performance 
-- This code is not considered heavily tested and your mileage may vary. This was written for personal usage.
-
-# Useful alternatives
-- [Spiral project](https://www.spiral.net/software/viterbi.html) aims to auto-generate high performance code for any input parameters
-- [ka9q/libfec](https://github.com/ka9q/libfec) is Phil Karn's original C implementation

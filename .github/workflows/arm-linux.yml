@@ -1,0 +1,39 @@
+name: arm-linux
+
+on:
+  push:
+    branches: [ "master" ]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install packages
+      shell: bash
+      run: |
+        cd ${{github.workspace}}/examples
+        ./toolchains/arm_install_packages.sh
+      
+    - name: Configure CMake
+      shell: bash
+      run: |
+        cd ${{github.workspace}}/examples
+        ./toolchains/arm_build.sh
+
+    - name: Build
+      shell: bash
+      run: |
+        cd ${{github.workspace}}/examples
+        ninja -C build-arm
+    
+    - name: Run test 
+      shell: bash
+      run: |
+        cd ${{github.workspace}}/examples
+        ./toolchains/arm_run.sh ./build-arm/run_tests
