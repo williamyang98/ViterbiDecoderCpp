@@ -1,6 +1,6 @@
 #pragma once
-#include "convolutional_encoder.h"
-#include "parity_table.h"
+#include "./convolutional_encoder.h"
+#include "./parity_table.h"
 #include <vector>
 #include <stdint.h>
 #include <stddef.h>

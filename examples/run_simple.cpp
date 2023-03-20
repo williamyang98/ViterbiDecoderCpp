@@ -5,11 +5,16 @@
 #include <limits>
 
 #include "convolutional_encoder_lookup.h"
-#include "viterbi_decoder_scalar.h"
-#include "viterbi_decoder_sse_u16.h"
-#include "viterbi_decoder_avx_u16.h"
-
+#include "helpers/simd_type.h"
 #include "helpers/test_helpers.h"
+
+#include "viterbi_decoder_scalar.h"
+#if defined(VITERBI_SIMD_X86)
+#include "x86/viterbi_decoder_sse_u16.h"
+#include "x86/viterbi_decoder_avx_u16.h"
+#elif defined(VITERBI_SIMD_ARM)
+#include "arm/viterbi_decoder_neon_u16.h"
+#endif
 
 constexpr size_t K = 7;
 constexpr size_t R = 4;
@@ -62,10 +67,17 @@ int main(int argc, char** argv) {
     std::vector<uint8_t> rx_input_bytes;
     rx_input_bytes.resize(total_input_bytes);
     auto branch_table = ViterbiBranchTable<K,R,int16_t>(G, soft_decision_high, soft_decision_low);
-    // NOTE: Up to you to choose which level of vectorisation to use
+
+    // NOTE: Up to you to choose your desired decoder type
+    #if defined(VITERBI_SIMD_X86)
     auto vitdec = ViterbiDecoder_AVX_u16<K,R>(branch_table, decoder_config);
     // auto vitdec = ViterbiDecoder_SSE_u16<K,R>(branch_table, decoder_config);
-    // auto vitdec = ViterbiDecoder_Scalar<K,R,uint16_t,int16_t>(branch_table, decoder_config);
+    #elif defined(VITERBI_SIMD_ARM)
+    auto vitdec = ViterbiDecoder_NEON_u16<K,R>(branch_table, decoder_config);
+    #else
+    auto vitdec = ViterbiDecoder_Scalar<K,R,uint16_t,int16_t>(branch_table, decoder_config);
+    #endif
+
     vitdec.set_traceback_length(total_input_bits);
     vitdec.reset();
     vitdec.update(output_symbols.data(), output_symbols.size());

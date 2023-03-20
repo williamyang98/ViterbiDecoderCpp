@@ -4,9 +4,7 @@
 #include <stddef.h>
 #include <string>
 #include <array>
-
-// NOTE: We have a bunch of wierd template code since each viterbi decoder
-//       instantiates a different template
+#include "simd_type.h"
 
 // Sample codes
 template <size_t constraint_length, size_t code_rate, typename code_t = uint16_t>
@@ -31,34 +29,6 @@ struct {
     const size_t N = 8;
 } common_codes;
 
-enum SIMD_Type {
-    SCALAR=0, SIMD_SSE=1, SIMD_AVX=2
-};
-
-template <class decoder_factory_t>
-constexpr 
-SIMD_Type get_fastest_simd_type() {
-    if constexpr(decoder_factory_t::SIMD_AVX::is_valid) {
-        return SIMD_Type::SIMD_AVX;
-    } else if constexpr(decoder_factory_t::SIMD_SSE::is_valid) {
-        return SIMD_Type::SIMD_SSE;
-    } else if constexpr(decoder_factory_t::Scalar::is_valid) {
-        return SIMD_Type::SCALAR;
-    } else {
-        // static_assert(false, "No valid decoder in decoder factory");
-    }
-};
-
-constexpr 
-const char* get_simd_type_string(const SIMD_Type simd_type) {
-    switch (simd_type) {
-    case SIMD_Type::SCALAR:   return "SCALAR";
-    case SIMD_Type::SIMD_SSE: return "SIMD_SSE";
-    case SIMD_Type::SIMD_AVX: return "SIMD_AVX";
-    default:                   return "UNKNOWN";
-    }
-}
-
 template <template <size_t, size_t> class decoder_factory_t, size_t K, size_t R, typename code_t>
 constexpr
 void print_code(const Code<K,R,code_t>& code, const size_t id, const size_t max_name_length) {
@@ -67,25 +37,20 @@ void print_code(const Code<K,R,code_t>& code, const size_t id, const size_t max_
     // default decode type
     constexpr auto simd_type = get_fastest_simd_type<decoder_factory_t<K,R>>();
     constexpr const char* decode_name = get_simd_type_string(simd_type);
-    printf("%*s", 8, decode_name);
+    printf("%*s", 9, decode_name);
     printf(" | ");
     
     // Coefficients in decimal form
     const auto& G = code.G;
     const size_t N = G.size();
-    {
-        printf("[");
-        size_t i = 0u;
-        while (true) {
-            printf("%u", G[i]);
-            i++;
-            if (i >= N) {
-                break;
-            }
+    printf("[");
+    for (size_t i = 0u; i < N; i++) {
+        printf("%u", G[i]);
+        if (i != (N-1)) {
             printf(",");
         }
-        printf("]");
     }
+    printf("]");
     printf("\n");
 }
 

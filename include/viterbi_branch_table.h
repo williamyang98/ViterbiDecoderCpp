@@ -1,6 +1,6 @@
 #pragma once
 
-#include "parity_table.h"
+#include "./parity_table.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <assert.h>

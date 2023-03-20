@@ -94,7 +94,7 @@ int main(int argc, char** argv) {
     printf(
         "Status | %*s | %*s | %*s |  K  R | Coefficients\n",
         8, "Decoder",
-        8, "SIMD",
+        9, "SIMD",
         16, "Name"
     );
     run_tests_on_codes<ViterbiDecoder_Factory_u16>(get_soft16_decoding_config, global_results, DecodeType::SOFT16, noise_level, true,  total_input_bytes);
@@ -159,6 +159,7 @@ void run_tests(
     }
     skip_scalar:
 
+    #if defined(VITERBI_SIMD_X86)
     if constexpr(factory_t<K,R>::SIMD_SSE::is_valid) {
         auto vitdec = typename factory_t<K,R>::SIMD_SSE(branch_table, config.decoder_config);
         const auto res = run_test(
@@ -184,6 +185,22 @@ void run_tests(
         global_results.total_tests++;
         if (res.total_bit_errors == 0) global_results.total_pass++;
     } 
+    #elif defined(VITERBI_SIMD_ARM)
+    if constexpr(factory_t<K,R>::SIMD_NEON::is_valid) {
+        auto vitdec = typename factory_t<K,R>::SIMD_NEON(branch_table, config.decoder_config);
+        const auto res = run_test(
+            vitdec, &enc, 
+            noise_level, is_soft_noise, 
+            total_input_bytes, 
+            config.soft_decision_high, config.soft_decision_low
+        );
+        print_test_result(res, code, decode_type, SIMD_Type::SIMD_NEON);
+        global_results.total_tests++;
+        if (res.total_bit_errors == 0) global_results.total_pass++;
+    } 
+    #endif
+
+    return;
 }
 
 template <typename soft_t, class T>
@@ -282,7 +299,7 @@ void print_test_result(
     printf("%*s | ", 8, get_decode_type_string(decode_type));
 
     // SIMD type
-    printf("%*s | ", 8, get_simd_type_string(simd_type));
+    printf("%*s | ", 9, get_simd_type_string(simd_type));
 
     // Code description
     printf("%*s | %2zu %2zu | ", 16, code.name, code.K, code.R);

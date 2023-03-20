@@ -350,6 +350,7 @@ void init_test(
         printf("\n");
     }
 
+    #if defined(VITERBI_SIMD_X86)
     if constexpr(factory_t<K,R>::SIMD_SSE::is_valid) {
         auto vitdec = typename factory_t<K,R>::SIMD_SSE(branch_table, config.decoder_config);
         vitdec.set_traceback_length(total_input_bits);
@@ -379,6 +380,22 @@ void init_test(
         print_comparison(test_ref, res);
         printf("\n");
     }
+    #elif defined(VITERBI_SIMD_ARM)
+    if constexpr(factory_t<K,R>::SIMD_NEON::is_valid) {
+        auto vitdec = typename factory_t<K,R>::SIMD_NEON(branch_table, config.decoder_config);
+        vitdec.set_traceback_length(total_input_bits);
+        const auto res = run_test(
+            vitdec, 
+            output_symbols.data(), output_symbols.size(), 
+            tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
+            total_runs
+        );
+
+        printf("> SIMD_NEON results\n");
+        print_comparison(test_ref, res);
+        printf("\n");
+    }
+    #endif
 }
 
 template <typename soft_t, class T>

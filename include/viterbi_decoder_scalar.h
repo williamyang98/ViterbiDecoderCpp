@@ -5,7 +5,7 @@
  * see http://www.gnu.org/copyleft/lgpl.html
  */
 #pragma once
-#include "viterbi_decoder_core.h"
+#include "./viterbi_decoder_core.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <vector>

@@ -58,8 +58,12 @@ void usage() {
         "        hard_8:  use u8  error type and hard decision boundaries\n"
         "    [-d <decode type> (default: highest)]\n"
         "        scalar:     no vectorisation\n"
+        #if defined(VITERBI_SIMD_X86)
         "        sse:    128bit vectorisation\n"
         "        avx:    256bit vectorisation\n"
+        #elif defined(VITERBI_SIMD_NEON)
+        "        neon:   128bit vectorisation\n"
+        #endif
         "    [-n <noise level> (default: 0)]\n"
         "    [-s <random seed> (default: Random)]\n"
         "    [-L <total input bytes> (default: 1024)]\n"
@@ -190,15 +194,26 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Total input bytes must be positive\n");
         return 1;
     }
-    
-    auto decode_type = SIMD_Type::SIMD_AVX;
+
+    auto decode_type = SIMD_Type::SCALAR;
+    #if defined(VITERBI_SIMD_X86)
+    decode_type = SIMD_Type::SIMD_AVX;
+    #elif defined(VITERBI_SIMD_ARM)
+    decode_type = SIMD_Type::SIMD_NEON;
+    #endif
+
     if (decode_type_str != NULL) {
-        if (strncmp(decode_type_str, "scalar", 8) == 0) {
+        if (strncmp(decode_type_str, "scalar", 7) == 0) {
             decode_type = SIMD_Type::SCALAR;
-        } else if (strncmp(decode_type_str, "sse", 7) == 0) {
+        #if defined(VITERBI_SIMD_X86)
+        } else if (strncmp(decode_type_str, "sse", 4) == 0) {
             decode_type = SIMD_Type::SIMD_SSE;
-        } else if (strncmp(decode_type_str, "avx", 7) == 0) {
+        } else if (strncmp(decode_type_str, "avx", 4) == 0) {
             decode_type = SIMD_Type::SIMD_AVX;
+        #elif defined(VITERBI_SIMD_ARM)
+        } else if (strncmp(decode_type_str, "neon", 5) == 0) {
+            decode_type = SIMD_Type::SIMD_NEON;
+        #endif
         } else {
             fprintf(
                 stderr, 
@@ -288,6 +303,7 @@ void init_test(
     auto branch_table = ViterbiBranchTable<K,R,soft_t>(code.G.data(), config.soft_decision_high, config.soft_decision_low);
 
     // Run decoder
+    #if defined(VITERBI_SIMD_X86)
     if (decode_type >= SIMD_Type::SIMD_AVX) {
         if constexpr(factory_t<K,R>::SIMD_AVX::is_valid) {
             printf("Using SIMD_AVX decoder\n");
@@ -319,7 +335,23 @@ void init_test(
             printf("Requested SIMD_SSE decoder unsuccessfully\n");
         }
     }
-
+    #elif defined(VITERBI_SIMD_ARM)
+    if (decode_type >= SIMD_Type::SIMD_NEON) {
+        if constexpr(factory_t<K,R>::SIMD_NEON::is_valid) {
+            printf("Using SIMD_NEON decoder\n");
+            auto vitdec = typename factory_t<K,R>::SIMD_NEON(branch_table, config.decoder_config);
+            run_test(
+                vitdec, &enc, 
+                noise_level, is_soft_noise, 
+                total_input_bytes, 
+                config.soft_decision_high, config.soft_decision_low
+            );
+            return;
+        } else {
+            printf("Requested SIMD_NEON decoder unsuccessfully\n");
+        }
+    }
+    #endif
     if (decode_type >= SIMD_Type::SCALAR) {
         if constexpr(factory_t<K,R>::Scalar::is_valid) {
             printf("Using SCALAR decoder\n");

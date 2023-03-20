@@ -265,7 +265,8 @@ void run_test(
         printf("%zu/%zu incorrect bits\n", total_errors, total_data_bits);
         printf("\n");
     }
-    
+
+    #if defined(VITERBI_SIMD_X86) 
     if constexpr(decoder_factory_t::SIMD_SSE::is_valid) {
         auto vitdec = typename decoder_factory_t::SIMD_SSE(branch_table, config);
         vitdec.set_traceback_length(total_data_bits);
@@ -297,6 +298,23 @@ void run_test(
         printf("%zu/%zu incorrect bits\n", total_errors, total_data_bits);
         printf("\n");
     }
+    #elif defined(VITERBI_SIMD_ARM)
+    if constexpr(decoder_factory_t::SIMD_NEON::is_valid) {
+        auto vitdec = typename decoder_factory_t::SIMD_NEON(branch_table, config);
+        vitdec.set_traceback_length(total_data_bits);
+        run_punctured_decoder(vitdec, soft_decision.unpunctured, output_symbols.data(), total_output_symbols);
+        vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
+        const uint64_t traceback_error = vitdec.get_error();
+        const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_data_bytes);
+        const float bit_error_rate = (float)total_errors / (float)total_data_bits * 100.0f;
+
+        printf("> SIMD_NEON results\n");
+        printf("traceback_error=%" PRIu64 "\n", traceback_error);
+        printf("bit error rate=%.2f%%\n", bit_error_rate);
+        printf("%zu/%zu incorrect bits\n", total_errors, total_data_bits);
+        printf("\n");
+    }
+    #endif
 }
 
 template <typename soft_t>

@@ -5,8 +5,8 @@
  * see http://www.gnu.org/copyleft/lgpl.html
  */
 #pragma once
-#include "viterbi_branch_table.h"
-#include "viterbi_decoder_config.h"
+#include "./viterbi_branch_table.h"
+#include "./viterbi_decoder_config.h"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -88,6 +88,10 @@ public:
         assert(uintptr_t(&metrics[0].buf[0]) % METRIC_ALIGNMENT == 0);
         reset();
         set_traceback_length(0);
+    }
+
+    size_t get_curr_decoded_bit() const { 
+        return curr_decoded_bit;
     }
 
     // Traceback length doesn't include tail bits
