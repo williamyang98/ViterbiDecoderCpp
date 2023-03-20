@@ -147,15 +147,7 @@ private:
         for (size_t i = 1u; i < m128_width_metric; i++) {
             adjustv = vminq_u8(adjustv, m128_metric[i]);
         }
-
-        // Shift half of the array onto the other half and get the minimum between them
-        // TODO: Use intrinsics
-        const uint8_t* buf = reinterpret_cast<const uint8_t*>(&adjustv);
-        uint8_t min = buf[0];
-        for (size_t i = 1; i < 16; i++) {
-            const uint8_t v = buf[i];
-            min = (min > v) ? v : min;
-        }
+        const uint8_t min = vminvq_u8(adjustv);
 
         // Normalise to minimum
         const uint8x16_t vmin = vmovq_n_u8(min);
@@ -196,10 +188,8 @@ private:
         uint32x4_t m2 = vpaddlq_u16(m1);
 
         uint32x4_t m3 = vshlq_u32(m2, shift_mask);
-        uint64x2_t m4 = vpaddlq_u32(m3);
-
-        uint64_t v = vgetq_lane_u64(m4, 0) | vgetq_lane_u64(m4, 1);
-        return uint32_t(v);
+        uint32_t v = vaddvq_u32(m3);
+        return v;
     }
 };
 
