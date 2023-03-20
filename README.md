@@ -28,13 +28,17 @@ The following intrinsic implementations exist:
 - 16bit error metrics and soft decision values
 - 8bit error metrics and soft decision values
 
-| Type | Minimum constraint length | Theoretical Speedup |
-| --- | --- | --- |
-| Scalar         | 2 | 1x  |
-| SSE4.1 - 16bit | 5 | 8x  |
-| SSE4.1 - 8bit  | 6 | 16x |
-| AVX2 - 16bit   | 6 | 16x |
-| AVX2 - 8bit    | 7 | 32x |
+Each vectorisaton type requires the convolution code to have a minimum constraint length (K)
+
+| Type | Width | Kmin | Speedup |
+| --- | --- | --- | --- |
+| Scalar     |       | 2 | 1x  |
+| x86 SSE4.1 | 16bit | 5 | 8x  |
+| x86 SSE4.1 | 8bit  | 6 | 16x |
+| x86 AVX2   | 16bit | 6 | 16x |
+| x86 AVX2   | 8bit  | 7 | 32x |
+| ARM Neon   | 16bit | 5 | 8x  |
+| ARM Neon   | 8bit  | 6 | 16x |
 
 Benchmarks show that the vectorised decoders have significiant speedups that can approach or supercede the theoretical values.
 
