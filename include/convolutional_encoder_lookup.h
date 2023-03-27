@@ -39,12 +39,12 @@ public:
         reset();
     }
 
-    virtual void reset() { 
+    void reset() override { 
         reg = 0u; 
     }
 
     // Output R bytes for each input byte
-    virtual void consume_byte(const uint8_t x, uint8_t* y) {
+    void consume_byte(const uint8_t x, uint8_t* y) override {
         reg = (reg << TOTAL_BITS_INPUT) | (size_t)x;
         const size_t i = reg & LOOKUP_BITMASK;
         uint8_t* v = &table[i*R];

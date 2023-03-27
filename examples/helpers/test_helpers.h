@@ -78,9 +78,8 @@ void add_binary_noise(T* data, const size_t N, const uint64_t noise_level, const
     const uint64_t mod_noise = max_noise*2u;
     for (size_t i = 0u; i < N; i++) {
         const uint64_t noise_value = uint64_t(std::rand()) % mod_noise;
-        auto& v = data[i];
         if (noise_value <= noise_level)  {
-            v = -v;
+            data[i] = -data[i];
         }
     }
 }

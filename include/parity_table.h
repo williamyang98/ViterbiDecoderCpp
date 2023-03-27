@@ -22,10 +22,13 @@ private:
             table[i] = parity;
         }
     }
-    ParityTable(const ParityTable&) = default;
-    ParityTable(ParityTable&&) = default;
-    ParityTable& operator=(const ParityTable&) = default;
-    ParityTable& operator=(ParityTable&&) = default;
+    ~ParityTable() {
+        delete [] table;
+    }
+    ParityTable(const ParityTable&) = delete;
+    ParityTable(ParityTable&&) = delete;
+    ParityTable& operator=(const ParityTable&) = delete;
+    ParityTable& operator=(ParityTable&&) = delete;
 public:
     static 
     ParityTable& get() {

@@ -15,7 +15,7 @@ public:
 
     }
 
-    virtual ~ConvolutionalEncoder() = default;
+    virtual ~ConvolutionalEncoder() {};
 
     virtual void reset() = 0;
 

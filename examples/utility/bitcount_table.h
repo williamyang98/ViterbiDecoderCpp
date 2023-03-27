@@ -20,10 +20,13 @@ private:
             table[i] = count;
         }
     }
-    BitcountTable(const BitcountTable&) = default;
-    BitcountTable(BitcountTable&&) = default;
-    BitcountTable& operator=(const BitcountTable&) = default;
-    BitcountTable& operator=(BitcountTable&&) = default;
+    ~BitcountTable() {
+        delete [] table;
+    }
+    BitcountTable(const BitcountTable&) = delete;
+    BitcountTable(BitcountTable&&) = delete;
+    BitcountTable& operator=(const BitcountTable&) = delete;
+    BitcountTable& operator=(BitcountTable&&) = delete;
 public:
     static 
     BitcountTable& get() {

@@ -30,12 +30,12 @@ public:
         }
     }
 
-    virtual void reset() { 
+    void reset() override { 
         reg = 0u; 
     }
 
     // Output R bytes for each input byte
-    virtual void consume_byte(const uint8_t x, uint8_t* y) {
+    void consume_byte(const uint8_t x, uint8_t* y) override {
         auto& parity_table = ParityTable::get();
 
         for (size_t i = 0u; i < R; i++) {
