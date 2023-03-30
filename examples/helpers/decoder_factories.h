@@ -1,17 +1,17 @@
 #pragma once
 #include <stdint.h>
 
-#include "viterbi_decoder_scalar.h"
-#include "simd_type.h"
+#include "viterbi/viterbi_decoder_scalar.h"
+#include "./simd_type.h"
 
 #if defined(VITERBI_SIMD_X86)
-#include "x86/viterbi_decoder_sse_u16.h"
-#include "x86/viterbi_decoder_avx_u16.h"
-#include "x86/viterbi_decoder_sse_u8.h"
-#include "x86/viterbi_decoder_avx_u8.h"
+#include "viterbi/x86/viterbi_decoder_sse_u16.h"
+#include "viterbi/x86/viterbi_decoder_avx_u16.h"
+#include "viterbi/x86/viterbi_decoder_sse_u8.h"
+#include "viterbi/x86/viterbi_decoder_avx_u8.h"
 #elif defined(VITERBI_SIMD_ARM)
-#include "arm/viterbi_decoder_neon_u8.h"
-#include "arm/viterbi_decoder_neon_u16.h"
+#include "viterbi/arm/viterbi_decoder_neon_u8.h"
+#include "viterbi/arm/viterbi_decoder_neon_u16.h"
 #endif
 
 // NOTE: Use these classes inside template parameters 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "convolutional_encoder.h"
+#include "viterbi/convolutional_encoder.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <vector>

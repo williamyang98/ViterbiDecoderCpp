@@ -4,16 +4,16 @@
 #include <vector>
 #include <limits>
 
-#include "convolutional_encoder_lookup.h"
+#include "viterbi/convolutional_encoder_lookup.h"
 #include "helpers/simd_type.h"
 #include "helpers/test_helpers.h"
 
-#include "viterbi_decoder_scalar.h"
+#include "viterbi/viterbi_decoder_scalar.h"
 #if defined(VITERBI_SIMD_X86)
-#include "x86/viterbi_decoder_sse_u16.h"
-#include "x86/viterbi_decoder_avx_u16.h"
+#include "viterbi/x86/viterbi_decoder_sse_u16.h"
+#include "viterbi/x86/viterbi_decoder_avx_u16.h"
 #elif defined(VITERBI_SIMD_ARM)
-#include "arm/viterbi_decoder_neon_u16.h"
+#include "viterbi/arm/viterbi_decoder_neon_u16.h"
 #endif
 
 constexpr size_t K = 7;

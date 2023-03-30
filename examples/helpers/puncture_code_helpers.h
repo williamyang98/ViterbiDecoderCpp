@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <assert.h>
 #include <vector>
-#include "convolutional_encoder.h"
+#include "viterbi/convolutional_encoder.h"
 #include "utility/basic_ops.h"
 
 // Reads symbols and depunctured the number of requested symbols

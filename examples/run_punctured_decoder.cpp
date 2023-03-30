@@ -8,7 +8,7 @@
 #include <random>
 #include <chrono>
 
-#include "convolutional_encoder_lookup.h"
+#include "viterbi/convolutional_encoder_lookup.h"
 
 #include "helpers/decoder_factories.h"
 #include "helpers/decoder_configs.h"

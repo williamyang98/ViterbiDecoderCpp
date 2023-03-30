@@ -7,8 +7,8 @@
 #include <vector>
 #include <random>
 
-#include "convolutional_encoder.h"
-#include "convolutional_encoder_shift_register.h"
+#include "viterbi/convolutional_encoder.h"
+#include "viterbi/convolutional_encoder_shift_register.h"
 
 #include "helpers/common_codes.h"
 #include "helpers/decoder_configs.h"
