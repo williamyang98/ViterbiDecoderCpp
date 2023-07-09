@@ -2,14 +2,20 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <array>
 #include <limits>
 #include "viterbi/viterbi_decoder_config.h"
+#include "./simd_type.h"
 
 template <typename soft_t, typename error_t>
 struct Decoder_Config {
     soft_t soft_decision_high;
     soft_t soft_decision_low;
     ViterbiDecoder_Config<error_t> decoder_config;
+};
+
+enum DecodeType {
+    SOFT16, SOFT8, HARD8
 };
 
 Decoder_Config<int16_t, uint16_t> get_soft16_decoding_config(const size_t code_rate) {
@@ -56,3 +62,28 @@ Decoder_Config<int8_t, uint8_t> get_hard8_decoding_config(const size_t code_rate
 
     return { soft_decision_high, soft_decision_low, config };
 }
+
+constexpr
+const char* get_decode_type_str(DecodeType type) {
+    switch (type) {
+    case DecodeType::SOFT16:    return "SOFT16";
+    case DecodeType::SOFT8:     return "SOFT8";
+    case DecodeType::HARD8:     return "HARD8";
+    default:                    return "UNKNOWN";
+    }
+}
+
+#define SELECT_DECODE_TYPE(INDEX, BLOCK) do {\
+    switch (INDEX) {\
+    case DecodeType::SOFT16: { auto it0 = get_soft16_decoding_config; using it1 = ViterbiDecoder_Factory_u16; BLOCK }; break;\
+    case DecodeType::SOFT8:  { auto it0 = get_soft8_decoding_config;  using it1 = ViterbiDecoder_Factory_u8;  BLOCK }; break;\
+    case DecodeType::HARD8:  { auto it0 = get_hard8_decoding_config;  using it1 = ViterbiDecoder_Factory_u8;  BLOCK }; break;\
+    default: break;\
+    }\
+} while(0)
+
+const std::array<DecodeType,3> Decode_Type_List = {
+    DecodeType::SOFT16,
+    DecodeType::SOFT8,
+    DecodeType::HARD8,
+};

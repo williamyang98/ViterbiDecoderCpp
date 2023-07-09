@@ -10,8 +10,8 @@
 
 #include "viterbi/convolutional_encoder_lookup.h"
 
-#include "helpers/decoder_factories.h"
-#include "helpers/decoder_configs.h"
+#include "helpers/decode_type.h"
+#include "helpers/simd_type.h"
 #include "helpers/puncture_code_helpers.h"
 #include "helpers/test_helpers.h"
 #include "utility/span.h"
@@ -75,17 +75,9 @@ constexpr size_t PI_15_total_count = 3;
 
 constexpr int NOISE_MAX = 100;
 
-template <typename soft_t>
-struct SoftDecisionParameters {
-    soft_t high;
-    soft_t low;
-    soft_t unpunctured;
-};
-
-template <class decoder_factory_t, typename soft_t, typename error_t>
+template <class factory_t, typename soft_t, typename error_t>
 void run_test(
-    const ViterbiDecoder_Config<error_t>& config,
-    const SoftDecisionParameters<soft_t>& soft_decision,
+    const Decoder_Config<soft_t,error_t>& config,
     const uint64_t noise_level, const bool is_soft_noise
 );
 
@@ -113,6 +105,36 @@ void usage() {
         "    [-s <random seed> (default: Random)]\n"
         "    [-h Show usage]\n"
     );
+}
+
+uint64_t get_normalised_noise_level(DecodeType decode_type, float noise_level, float soft_decision_high) {
+    switch (decode_type) {
+        case DecodeType::SOFT16: {
+            const float soft_noise_multiplier = 5.5f;
+            const uint64_t soft_noise_level = uint64_t(noise_level * soft_decision_high * soft_noise_multiplier);
+            return soft_noise_level;
+        }
+        case DecodeType::SOFT8: {
+            const float soft_noise_multiplier = 5.8f;
+            const uint64_t soft_noise_level = uint64_t(noise_level * soft_decision_high * soft_noise_multiplier);
+            return soft_noise_level;
+        }
+        case DecodeType::HARD8: {
+            const uint64_t hard_noise_level = uint64_t(noise_level * 100.0f);
+            return hard_noise_level;
+        }
+        default:
+            return 0;
+    }
+}
+
+bool get_is_soft_noise(DecodeType decode_type) {
+    switch (decode_type) {
+    case DecodeType::SOFT16: return true;
+    case DecodeType::SOFT8:  return true;
+    case DecodeType::HARD8:  return false;
+    default:                 return true;
+    }
 }
 
 int main(int argc, char** argv) {
@@ -158,60 +180,24 @@ int main(int argc, char** argv) {
     std::srand((unsigned int)random_seed);
 
     const float normalised_noise_level = float(noise_level) / 100.0f;
-    {
-        auto config = get_soft16_decoding_config(R);
-        SoftDecisionParameters<int16_t> soft_decision;
-        soft_decision.low = config.soft_decision_low;
-        soft_decision.high = config.soft_decision_high;
-        soft_decision.unpunctured = 0; 
-        const float soft_noise_multiplier = 5.5f;
-        const uint64_t soft_noise_level = uint64_t(normalised_noise_level * float(soft_decision.high) * soft_noise_multiplier);
-        printf(">> Using soft_16 decoders\n");
-        run_test<ViterbiDecoder_Factory_u16<K,R>>(
-            config.decoder_config, 
-            soft_decision, 
-            soft_noise_level, true
-        );
-    }
-    printf("\n");
-    {
-        auto config = get_soft8_decoding_config(R);
-        SoftDecisionParameters<int8_t> soft_decision;
-        soft_decision.low = config.soft_decision_low;
-        soft_decision.high = config.soft_decision_high;
-        soft_decision.unpunctured = 0; 
-        const float soft_noise_multiplier = 5.8f;
-        const uint64_t soft_noise_level = uint64_t(normalised_noise_level * float(soft_decision.high) * soft_noise_multiplier);
-        printf(">> Using soft_8 decoders\n");
-        run_test<ViterbiDecoder_Factory_u8<K,R>>(
-            config.decoder_config, 
-            soft_decision, 
-            soft_noise_level, true
-        );
-    }
-    printf("\n");
-    {
-        auto config = get_hard8_decoding_config(R);
-        SoftDecisionParameters<int8_t> soft_decision;
-        soft_decision.low = config.soft_decision_low;
-        soft_decision.high = config.soft_decision_high;
-        soft_decision.unpunctured = 0; 
-        const uint64_t hard_noise_level = uint64_t(normalised_noise_level * 100.0f);
-        printf(">> Using hard_8 decoders\n");
-        run_test<ViterbiDecoder_Factory_u8<K,R>>(
-            config.decoder_config, 
-            soft_decision, 
-            hard_noise_level, false
-        );
-    } 
+    for (const auto& decode_type: Decode_Type_List) {
+        SELECT_DECODE_TYPE(decode_type, {
+            auto get_config = it0;
+            using factory_t = it1;
 
+            auto config = get_config(R);
+            const uint64_t norm_noise = get_normalised_noise_level(decode_type, normalised_noise_level, float(config.soft_decision_high));
+            const bool is_soft_noise = get_is_soft_noise(decode_type);
+            printf(">>> Running %s decode type\n", get_decode_type_str(decode_type));
+            run_test<factory_t>(config, norm_noise, is_soft_noise);
+        });
+    };
     return 0;
 }
 
-template <class decoder_factory_t, typename soft_t, typename error_t>
+template <class factory_t, typename soft_t, typename error_t>
 void run_test(
-    const ViterbiDecoder_Config<error_t>& config,
-    const SoftDecisionParameters<soft_t>& soft_decision,
+    const Decoder_Config<soft_t,error_t>& config,
     const uint64_t noise_level, const bool is_soft_noise
 ) {
     // Generate data
@@ -232,7 +218,7 @@ void run_test(
     // punctured encoding
     const size_t total_output_symbols = run_punctured_encoder(
         &enc, 
-        soft_decision.low, soft_decision.high,
+        config.soft_decision_low, config.soft_decision_high,
         output_symbols.data(), output_symbols.size(),
         tx_input_bytes.data(), tx_input_bytes.size()
     );
@@ -241,80 +227,36 @@ void run_test(
     if (noise_level > 0) {
         if (is_soft_noise) {
             add_noise(output_symbols.data(), output_symbols.size(), noise_level);
-            clamp_vector(output_symbols.data(), output_symbols.size(), soft_decision.low, soft_decision.high);
+            clamp_vector(output_symbols.data(), output_symbols.size(), config.soft_decision_low, config.soft_decision_high);
         } else {
             add_binary_noise(output_symbols.data(), output_symbols.size(), noise_level, uint64_t(NOISE_MAX));
         }
     }
 
     // decoding
-    auto branch_table = ViterbiBranchTable<K,R,soft_t>(G, soft_decision.high, soft_decision.low);
+    auto branch_table = ViterbiBranchTable<K,R,soft_t>(G, config.soft_decision_high, config.soft_decision_low);
+    const soft_t unpunctured_value = 0;
 
-    if constexpr(decoder_factory_t::Scalar::is_valid) {
-        auto vitdec = typename decoder_factory_t::Scalar(branch_table, config);
-        vitdec.set_traceback_length(total_data_bits);
-        run_punctured_decoder(vitdec, soft_decision.unpunctured, output_symbols.data(), total_output_symbols);
-        vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
-        const uint64_t traceback_error = vitdec.get_error();
-        const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_data_bytes);
-        const float bit_error_rate = (float)total_errors / (float)total_data_bits * 100.0f;
+    for (const auto& simd_type: SIMD_Type_List) {
+        SELECT_FACTORY_ITEM(factory_t, simd_type, K, R, {
+            using decoder_t = it;
+            if constexpr(decoder_t::is_valid) {
+                auto vitdec = decoder_t(branch_table, config.decoder_config);
+                vitdec.set_traceback_length(total_data_bits);
+                run_punctured_decoder(vitdec, unpunctured_value, output_symbols.data(), total_output_symbols);
+                vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
+                const uint64_t traceback_error = vitdec.get_error();
+                const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_data_bytes);
+                const float bit_error_rate = (float)total_errors / (float)total_data_bits * 100.0f;
 
-        printf("> Scalar results\n");
-        printf("traceback_error=%" PRIu64 "\n", traceback_error);
-        printf("bit error rate=%.2f%%\n", bit_error_rate);
-        printf("%zu/%zu incorrect bits\n", total_errors, total_data_bits);
-        printf("\n");
+                printf("> %s results\n", get_simd_type_string(simd_type));
+                printf("traceback_error=%" PRIu64 "\n", traceback_error);
+                printf("bit error rate=%.2f%%\n", bit_error_rate);
+                printf("%zu/%zu incorrect bits\n", total_errors, total_data_bits);
+                printf("\n");
+            }
+        });
     }
-
-    #if defined(VITERBI_SIMD_X86) 
-    if constexpr(decoder_factory_t::SIMD_SSE::is_valid) {
-        auto vitdec = typename decoder_factory_t::SIMD_SSE(branch_table, config);
-        vitdec.set_traceback_length(total_data_bits);
-        run_punctured_decoder(vitdec, soft_decision.unpunctured, output_symbols.data(), total_output_symbols);
-        vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
-        const uint64_t traceback_error = vitdec.get_error();
-        const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_data_bytes);
-        const float bit_error_rate = (float)total_errors / (float)total_data_bits * 100.0f;
-
-        printf("> SIMD_SSE results\n");
-        printf("traceback_error=%" PRIu64 "\n", traceback_error);
-        printf("bit error rate=%.2f%%\n", bit_error_rate);
-        printf("%zu/%zu incorrect bits\n", total_errors, total_data_bits);
-        printf("\n");
-    }
-
-    if constexpr(decoder_factory_t::SIMD_AVX::is_valid) {
-        auto vitdec = typename decoder_factory_t::SIMD_AVX(branch_table, config);
-        vitdec.set_traceback_length(total_data_bits);
-        run_punctured_decoder(vitdec, soft_decision.unpunctured, output_symbols.data(), total_output_symbols);
-        vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
-        const uint64_t traceback_error = vitdec.get_error();
-        const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_data_bytes);
-        const float bit_error_rate = (float)total_errors / (float)total_data_bits * 100.0f;
-
-        printf("> SIMD_AVX results\n");
-        printf("traceback_error=%" PRIu64 "\n", traceback_error);
-        printf("bit error rate=%.2f%%\n", bit_error_rate);
-        printf("%zu/%zu incorrect bits\n", total_errors, total_data_bits);
-        printf("\n");
-    }
-    #elif defined(VITERBI_SIMD_ARM)
-    if constexpr(decoder_factory_t::SIMD_NEON::is_valid) {
-        auto vitdec = typename decoder_factory_t::SIMD_NEON(branch_table, config);
-        vitdec.set_traceback_length(total_data_bits);
-        run_punctured_decoder(vitdec, soft_decision.unpunctured, output_symbols.data(), total_output_symbols);
-        vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
-        const uint64_t traceback_error = vitdec.get_error();
-        const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_data_bytes);
-        const float bit_error_rate = (float)total_errors / (float)total_data_bits * 100.0f;
-
-        printf("> SIMD_NEON results\n");
-        printf("traceback_error=%" PRIu64 "\n", traceback_error);
-        printf("bit error rate=%.2f%%\n", bit_error_rate);
-        printf("%zu/%zu incorrect bits\n", total_errors, total_data_bits);
-        printf("\n");
-    }
-    #endif
 }
 
 template <typename soft_t>

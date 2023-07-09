@@ -12,16 +12,14 @@
 #include "viterbi/convolutional_encoder_shift_register.h"
 
 #include "helpers/common_codes.h"
-#include "helpers/decoder_factories.h"
-#include "helpers/decoder_configs.h"
+#include "helpers/simd_type.h"
+#include "helpers/decode_type.h"
 #include "helpers/test_helpers.h"
 #include "utility/timer.h"
+#include "utility/expected.hpp"
 #include "getopt/getopt.h"
 
 constexpr int NOISE_MAX = 100;
-enum DecodeType {
-    SOFT16, SOFT8, HARD8
-};
 
 struct TestResults {
     float update_symbols_per_ms = 0.0f;
@@ -34,19 +32,23 @@ struct TestResults {
     size_t total_runs = 0u;
 };
 
-template <template <size_t, size_t> class factory_t, typename ... U>
-void select_test(
-    const size_t code_id,
-    U&& ... args
-);
+struct Arguments {
+    size_t code_id;
+    DecodeType decode_type;
+    uint64_t noise_level; 
+    bool is_soft_noise;
+    size_t total_input_bytes;
+    float total_duration_seconds;
+};
 
-template <template <size_t, size_t> class factory_t, size_t K, size_t R, typename soft_t, typename error_t>
+template <size_t K, size_t R, typename code_t>
+void select_code(const Code<K,R,code_t>& code, Arguments args);
+
+template <class factory_t, size_t K, size_t R, typename code_t, typename soft_t, typename error_t>
 void init_test(
-    const Code<K,R>& code, 
+    const Code<K,R,code_t>& code, 
     Decoder_Config<soft_t,error_t>(*config_factory)(const size_t),
-    const uint64_t noise_level, const bool is_soft_noise,
-    const size_t total_input_bytes,
-    const float total_duration_seconds
+    Arguments args
 );
 
 template <typename soft_t, class T>
@@ -61,7 +63,7 @@ void usage() {
     fprintf(stderr, 
         " run_benchmark, Runs benchmark on viterbi decoding\n\n"
         "    [-c <code id> (default: 0)]\n"
-        "    [-M <mode> (default: soft_16)]\n"
+        "    [-d <decode_type> (default: soft_16)]\n"
         "        soft_16: use u16 error type and soft decision boundaries\n"
         "        soft_8:  use u8  error type and soft decision boundaries\n"
         "        hard_8:  use u8  error type and hard decision boundaries\n"
@@ -74,201 +76,174 @@ void usage() {
     );
 }
 
-int main(int argc, char** argv) {
-    const size_t N_max = common_codes.N;
-    assert(N_max > 0u);
-
-    int code_id = 0;
-    int noise_level = 0;
-    int random_seed = 0;
-    bool is_randomise_seed = true;
-    int total_input_bytes = 1024;
-    float total_duration_seconds = 1.0f;
-    bool is_show_list = false;
-    const char* mode_str = NULL;
+tl::expected<Arguments, int> parse_args(int argc, char** argv) {
+    struct {
+        int code_id = 0;
+        int noise_level = 0;
+        int random_seed = 0;
+        int total_input_bytes = 1024;
+        float total_duration_seconds = 1.0;
+        bool is_randomise_seed = true;
+        bool is_show_list = false;
+        const char* decode_type_str = NULL;
+    } args;
 
 	int opt; 
-    while ((opt = getopt_custom(argc, argv, "c:M:n:s:L:T:lh")) != -1) {
+    while ((opt = getopt_custom(argc, argv, "c:d:n:s:L:T:lh")) != -1) {
         switch (opt) {
         case 'c':
-            code_id = atoi(optarg);
+            args.code_id = atoi(optarg);
             break;
-        case 'M':
-            mode_str = optarg;
+        case 'd':
+            args.decode_type_str = optarg;
             break;
         case 'n':
-            noise_level = atoi(optarg);
+            args.noise_level = atoi(optarg);
             break;
         case 's':
-            is_randomise_seed = false;
-            random_seed = atoi(optarg);
+            args.is_randomise_seed = false;
+            args.random_seed = atoi(optarg);
             break;
         case 'L':
-            total_input_bytes = atoi(optarg);
-            break;
-        case 'T':
-            total_duration_seconds = float(atof(optarg));
+            args.total_input_bytes = atoi(optarg);
             break;
         case 'l':
-            is_show_list = true;
+            args.is_show_list = true;
+            break;
+        case 'T':
+            args.total_duration_seconds = float(atof(optarg));
             break;
         case 'h':
         default:
             usage();
-            return 0;
+            return tl::unexpected(0);
         }
     }
 
     // Update selected decode mode
-    auto selected_mode = DecodeType::SOFT16;
-    if (mode_str != NULL) {
-        if (strncmp(mode_str, "soft_16", 8) == 0) {
-            selected_mode = DecodeType::SOFT16;
-        } else if (strncmp(mode_str, "soft_8", 7) == 0) {
-            selected_mode = DecodeType::SOFT8;
-        } else if (strncmp(mode_str, "hard_8", 7) == 0) {
-            selected_mode = DecodeType::HARD8;
+    auto decode_type = DecodeType::SOFT16;
+    if (args.decode_type_str != NULL) {
+        if (strncmp(args.decode_type_str, "soft_16", 8) == 0) {
+            decode_type = DecodeType::SOFT16;
+        } else if (strncmp(args.decode_type_str, "soft_8", 7) == 0) {
+            decode_type = DecodeType::SOFT8;
+        } else if (strncmp(args.decode_type_str, "hard_8", 7) == 0) {
+            decode_type = DecodeType::HARD8;
         } else {
             fprintf(
                 stderr, 
                 "Invalid option for mode='%s'\n"
                 "Run '%s -h' for description of '-M'\n", 
-                mode_str, 
+                args.decode_type_str, 
                 argv[0]);
-            return 1;
+            return tl::unexpected(1);
         }
     }
 
-    switch (selected_mode) {
-    case DecodeType::SOFT16: printf("Using soft_16 decoders\n"); break;
-    case DecodeType::SOFT8:  printf("Using soft_8 decoders\n"); break;
-    case DecodeType::HARD8:  printf("Using hard_8 decoders\n"); break;
-    default:
-        break; 
-    }
+    const char* decode_type_str = get_decode_type_str(decode_type);
+    printf("Using %s decoders\n", decode_type_str);
 
     // Other arguments
-    if (is_show_list) {
-        switch (selected_mode) {
-        case DecodeType::SOFT16:
-            list_codes<ViterbiDecoder_Factory_u16>();
-            break; 
-        case DecodeType::SOFT8:
-        case DecodeType::HARD8:
-            list_codes<ViterbiDecoder_Factory_u8>();
-            break;
-        default:
-            break; 
-        }
-        return 0;
+    if (args.is_show_list) {
+        SELECT_DECODE_TYPE(decode_type, {
+            using factory_t = it1;
+            list_codes<factory_t>();
+        });
+        return tl::unexpected(0);
     }
 
-    if ((code_id < 0) || (code_id >= (int)N_max)) {
+    if ((args.code_id < 0) || (args.code_id >= COMMON_CODES.N)) {
         fprintf(
             stderr, 
             "Config must be between %d...%d\n"
             "Run '%s -l' for list of codes\n", 
-            0, int(N_max)-1, argv[0]);
-        return 1;
+            0, int(COMMON_CODES.N-1), argv[0]);
+        return tl::unexpected(1);
     }
 
-    if (noise_level < 0) {
+    if (args.total_duration_seconds <= 0.0f) {
+        fprintf(stderr, "Duration of benchmark in seconds must be positive (%.3f)\n", args.total_duration_seconds);
+        return tl::unexpected(1);
+    }
+
+    if (args.noise_level < 0) {
         fprintf(stderr, "Noise level must be positive\n");
-        return 1;
+        return tl::unexpected(1);
     }
 
     // NOTE: Hard decision decoding has hard upper limit on noise level
-    if (selected_mode == DecodeType::HARD8) {
-        if ((noise_level < 0) || (noise_level > NOISE_MAX)) {
+    if (decode_type == DecodeType::HARD8) {
+        if ((args.noise_level < 0) || (args.noise_level > NOISE_MAX)) {
             fprintf(
                 stderr,
                 "Hard decision noise level must be between %d...%d\n",
                 0, NOISE_MAX
             );
-            return 1;
+            return tl::unexpected(1);
         }
     }
 
-    if (total_input_bytes < 0) {
+    if (args.total_input_bytes < 0) {
         fprintf(stderr, "Total input bytes must be positive\n");
-        return 1;
-    }
-
-    if (total_duration_seconds < 0.0) {
-        fprintf(stderr, "Total duration of run must be positive (%.3f)\n", total_duration_seconds);
-        return 1;
+        return tl::unexpected(1);
     }
 
     // Generate seed
-    if (is_randomise_seed) {
+    if (args.is_randomise_seed) {
         const auto dt_now = std::chrono::system_clock::now().time_since_epoch();
         const auto us_now = std::chrono::duration_cast<std::chrono::microseconds>(dt_now).count();
         std::srand((unsigned int)us_now);
-        random_seed = std::rand();
-        printf("Using random_seed=%d\n", random_seed);
+        args.random_seed = std::rand();
+        printf("Using random_seed=%d\n", args.random_seed);
     }
-    std::srand((unsigned int)random_seed);
+    std::srand((unsigned int)args.random_seed);
 
-     // Select code
-    switch (selected_mode) {
-    case DecodeType::SOFT16:
-        select_test<ViterbiDecoder_Factory_u16>(
-            size_t(code_id), 
-            get_soft16_decoding_config,
-            uint64_t(noise_level), true, 
-            size_t(total_input_bytes),
-            total_duration_seconds
-        );
-        break; 
-    case DecodeType::SOFT8:
-        select_test<ViterbiDecoder_Factory_u8>(
-            size_t(code_id), 
-            get_soft8_decoding_config,
-            uint64_t(noise_level), true, 
-            size_t(total_input_bytes),
-            total_duration_seconds
-        );
-        break;
-    case DecodeType::HARD8:
-        select_test<ViterbiDecoder_Factory_u8>(
-            size_t(code_id), 
-            get_hard8_decoding_config,
-            uint64_t(noise_level), false, 
-            size_t(total_input_bytes),
-            total_duration_seconds
-        );
-        break;
-    default:
-        break; 
+    bool is_soft_noise = true;
+    switch (decode_type) {
+    case DecodeType::SOFT16: is_soft_noise = true; break;
+    case DecodeType::SOFT8: is_soft_noise = true; break;
+    case DecodeType::HARD8: is_soft_noise = false; break;
+    default: break;
     }
 
+    Arguments out;
+    out.code_id = size_t(args.code_id);
+    out.is_soft_noise = is_soft_noise;
+    out.noise_level = uint64_t(args.noise_level);
+    out.decode_type = decode_type;
+    out.total_input_bytes = size_t(args.total_input_bytes);
+    out.total_duration_seconds = args.total_duration_seconds;
+    return out;
+}
+
+int main(int argc, char** argv) {
+    auto res = parse_args(argc, argv);
+    if (!res) {
+        return res.error();
+    }
+
+    auto& args = res.value();
+    SELECT_COMMON_CODES(args.code_id, {
+        const auto& code = it;
+        select_code(code, args);
+    });
     return 0;
 }
 
-template <template <size_t, size_t> class factory_t, typename ... U>
-void select_test(
-    const size_t code_id,
-    U&& ... args
-) {
-    switch (code_id) {
-    case 0: return init_test<factory_t>(common_codes.code_0, std::forward<U>(args)...);
-    case 1: return init_test<factory_t>(common_codes.code_1, std::forward<U>(args)...);
-    case 2: return init_test<factory_t>(common_codes.code_2, std::forward<U>(args)...);
-    case 3: return init_test<factory_t>(common_codes.code_3, std::forward<U>(args)...);
-    case 4: return init_test<factory_t>(common_codes.code_4, std::forward<U>(args)...);
-    case 5: return init_test<factory_t>(common_codes.code_5, std::forward<U>(args)...);
-    case 6: return init_test<factory_t>(common_codes.code_6, std::forward<U>(args)...);
-    case 7: return init_test<factory_t>(common_codes.code_7, std::forward<U>(args)...);
-    }
+template <size_t K, size_t R, typename code_t>
+void select_code(const Code<K,R,code_t>& code, Arguments args) {
+    SELECT_DECODE_TYPE(args.decode_type, {
+        auto config = it0;
+        using factory_t = it1;
+        init_test<factory_t>(code, config, args);
+    });
 }
 
-template <template <size_t, size_t> class factory_t, size_t K, size_t R, typename soft_t, typename error_t>
+template <class factory_t, size_t K, size_t R, typename code_t, typename soft_t, typename error_t>
 void init_test(
-    const Code<K,R>& code, 
+    const Code<K,R,code_t>& code, 
     Decoder_Config<soft_t,error_t>(*config_factory)(const size_t),
-    const uint64_t noise_level, const bool is_soft_noise,
-    const size_t total_input_bytes,
-    const float total_duration_seconds
+    Arguments args
 ) {
 
     printf("Using '%s': K=%zu, R=%zu\n", code.name, code.K, code.R);
@@ -278,6 +253,7 @@ void init_test(
     auto branch_table = ViterbiBranchTable<K,R,soft_t>(code.G.data(), config.soft_decision_high, config.soft_decision_low);
 
     // Generate test data
+    const size_t total_input_bytes = args.total_input_bytes;
     const size_t total_input_bits = total_input_bytes*8u;
     std::vector<uint8_t> tx_input_bytes;
     std::vector<soft_t> output_symbols; 
@@ -301,12 +277,12 @@ void init_test(
     );
 
     // generate appropriate noise signal
-    if (noise_level > 0) {
-        if (is_soft_noise) {
-            add_noise(output_symbols.data(), output_symbols.size(), noise_level);
+    if (args.noise_level > 0) {
+        if (args.is_soft_noise) {
+            add_noise(output_symbols.data(), output_symbols.size(), args.noise_level);
             clamp_vector(output_symbols.data(), output_symbols.size(), config.soft_decision_low, config.soft_decision_high);
         } else {
-            add_binary_noise(output_symbols.data(), output_symbols.size(), noise_level, uint64_t(NOISE_MAX));
+            add_binary_noise(output_symbols.data(), output_symbols.size(), args.noise_level, uint64_t(NOISE_MAX));
         }
     }
 
@@ -333,69 +309,32 @@ void init_test(
     };
 
     // Run tests
-    TestResults test_ref;
-    if constexpr(factory_t<K,R>::Scalar::is_valid) {
-        auto vitdec = typename factory_t<K,R>::Scalar(branch_table, config.decoder_config);
-        vitdec.set_traceback_length(total_input_bits);
-        const auto res = run_test(
-            vitdec, 
-            output_symbols.data(), output_symbols.size(), 
-            tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
-            total_duration_seconds
-        );
+    const float total_duration_seconds = args.total_duration_seconds;
+    TestResults scalar_test_results;
+    for (const auto& simd_type: SIMD_Type_List) {
+        SELECT_FACTORY_ITEM(factory_t, simd_type, K, R, {
+            using decoder_t = it;
+            if constexpr(decoder_t::is_valid) {
+                auto vitdec = decoder_t(branch_table, config.decoder_config);
+                vitdec.set_traceback_length(total_input_bits);
+                const auto res = run_test(
+                    vitdec, 
+                    output_symbols.data(), output_symbols.size(), 
+                    tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
+                    total_duration_seconds
+                );
 
-        printf("> Scalar results\n");
-        print_independent(res);
-        test_ref = res;
-        printf("\n");
+                printf("> %s results\n", get_simd_type_string(simd_type));
+                if (simd_type == SIMD_Type::SCALAR) {
+                    print_independent(res);
+                    scalar_test_results = res;
+                } else {
+                    print_comparison(scalar_test_results, res);
+                }
+                printf("\n");
+            }
+        });
     }
-
-    #if defined(VITERBI_SIMD_X86)
-    if constexpr(factory_t<K,R>::SIMD_SSE::is_valid) {
-        auto vitdec = typename factory_t<K,R>::SIMD_SSE(branch_table, config.decoder_config);
-        vitdec.set_traceback_length(total_input_bits);
-        const auto res = run_test(
-            vitdec, 
-            output_symbols.data(), output_symbols.size(), 
-            tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
-            total_duration_seconds
-        );
-
-        printf("> SIMD_SSE results\n");
-        print_comparison(test_ref, res);
-        printf("\n");
-    }
-
-    if constexpr(factory_t<K,R>::SIMD_AVX::is_valid) {
-        auto vitdec = typename factory_t<K,R>::SIMD_AVX(branch_table, config.decoder_config);
-        vitdec.set_traceback_length(total_input_bits);
-        const auto res = run_test(
-            vitdec, 
-            output_symbols.data(), output_symbols.size(), 
-            tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
-            total_duration_seconds
-        );
-
-        printf("> SIMD_AVX results\n");
-        print_comparison(test_ref, res);
-        printf("\n");
-    }
-    #elif defined(VITERBI_SIMD_ARM)
-    if constexpr(factory_t<K,R>::SIMD_NEON::is_valid) {
-        auto vitdec = typename factory_t<K,R>::SIMD_NEON(branch_table, config.decoder_config);
-        vitdec.set_traceback_length(total_input_bits);
-        const auto res = run_test(
-            vitdec, 
-            output_symbols.data(), output_symbols.size(), 
-            tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
-            total_duration_seconds
-        );
-
-        printf("> SIMD_NEON results\n");
-        print_comparison(test_ref, res);
-        printf("\n");
-    }
-    #endif
 }
 
 template <typename soft_t, class T>
