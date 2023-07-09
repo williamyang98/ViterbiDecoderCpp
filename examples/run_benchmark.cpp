@@ -24,9 +24,9 @@ enum DecodeType {
 };
 
 struct TestResults {
-    float ns_reset = 0.0f;      // microseconds
-    float ns_update = 0.0f;
-    float ns_chainback = 0.0f;
+    float update_symbols_per_ms = 0.0f;
+    float reset_bits_per_ms = 0.0f;
+    float chainback_bits_per_ms = 0.0f;
     float bit_error_rate = 0.0f;      
     size_t total_incorrect_bits = 0u;
     size_t total_decoded_bits = 0u;
@@ -46,7 +46,7 @@ void init_test(
     Decoder_Config<soft_t,error_t>(*config_factory)(const size_t),
     const uint64_t noise_level, const bool is_soft_noise,
     const size_t total_input_bytes,
-    const size_t total_runs
+    const float total_duration_seconds
 );
 
 template <typename soft_t, class T>
@@ -54,7 +54,7 @@ TestResults run_test(
     T& vitdec, 
     const soft_t* symbols, const size_t total_symbols, 
     const uint8_t* in_bytes, uint8_t* out_bytes, const size_t total_input_bytes,
-    const size_t total_runs
+    const float total_duration_seconds
 );
 
 void usage() {
@@ -68,7 +68,7 @@ void usage() {
         "    [-n <noise level> (default: 0)]\n"
         "    [-s <random seed> (default: Random)]\n"
         "    [-L <total input bytes> (default: 1024)]\n"
-        "    [-T <total runs> (default: 1000) ]\n"
+        "    [-T <total duration of benchmark> (default: 1.0) ]\n"
         "    [-l Lists all available codes]\n"
         "    [-h Show usage]\n"
     );
@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
     int random_seed = 0;
     bool is_randomise_seed = true;
     int total_input_bytes = 1024;
-    int total_runs = 1000;
+    float total_duration_seconds = 1.0f;
     bool is_show_list = false;
     const char* mode_str = NULL;
 
@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
             total_input_bytes = atoi(optarg);
             break;
         case 'T':
-            total_runs = atoi(optarg);
+            total_duration_seconds = float(atof(optarg));
             break;
         case 'l':
             is_show_list = true;
@@ -194,8 +194,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (total_runs < 0) {
-        fprintf(stderr, "Total runs must be positive\n");
+    if (total_duration_seconds < 0.0) {
+        fprintf(stderr, "Total duration of run must be positive (%.3f)\n", total_duration_seconds);
         return 1;
     }
 
@@ -217,7 +217,7 @@ int main(int argc, char** argv) {
             get_soft16_decoding_config,
             uint64_t(noise_level), true, 
             size_t(total_input_bytes),
-            size_t(total_runs)
+            total_duration_seconds
         );
         break; 
     case DecodeType::SOFT8:
@@ -226,7 +226,7 @@ int main(int argc, char** argv) {
             get_soft8_decoding_config,
             uint64_t(noise_level), true, 
             size_t(total_input_bytes),
-            size_t(total_runs)
+            total_duration_seconds
         );
         break;
     case DecodeType::HARD8:
@@ -235,7 +235,7 @@ int main(int argc, char** argv) {
             get_hard8_decoding_config,
             uint64_t(noise_level), false, 
             size_t(total_input_bytes),
-            size_t(total_runs)
+            total_duration_seconds
         );
         break;
     default:
@@ -268,7 +268,7 @@ void init_test(
     Decoder_Config<soft_t,error_t>(*config_factory)(const size_t),
     const uint64_t noise_level, const bool is_soft_noise,
     const size_t total_input_bytes,
-    const size_t total_runs 
+    const float total_duration_seconds
 ) {
 
     printf("Using '%s': K=%zu, R=%zu\n", code.name, code.K, code.R);
@@ -312,20 +312,21 @@ void init_test(
 
     // compare results
     auto print_independent = [](const TestResults src) {
-        constexpr float ns_to_sec = 1e-9f;
-        // printf("sec_reset     = %.3f\n", src.us_reset * ns_to_sec);
-        printf("sec_update    = %.3f\n", src.ns_update * ns_to_sec);
-        // printf("sec_chainback = %.3f\n", src.ns_chainback * ns_to_sec);
+        printf("update        = %.3f symbols/ms\n", src.update_symbols_per_ms);
+        printf("chainback     = %.3f bits/ms\n", src.chainback_bits_per_ms);
+        printf("reset         = %.3f bits/ms\n", src.reset_bits_per_ms);
         printf("ber           = %.4f\n", src.bit_error_rate);
         printf("errors        = %zu/%zu\n", src.total_incorrect_bits, src.total_decoded_bits);
         printf("error_metric  = %" PRIu64 "\n",  src.total_error);
     };
 
     auto print_comparison = [](const TestResults ref, const TestResults src) {
-        constexpr float ns_to_sec = 1e-9f;
-        // printf("sec_reset     = %.3f (x%.2f)\n", src.ns_reset * ns_to_sec, ref.ns_reset/src.ns_reset);
-        printf("sec_update    = %.3f (x%.2f)\n", src.ns_update * ns_to_sec, ref.ns_update/src.ns_update);
-        // printf("sec_chainback = %.3f (x%.2f)\n", src.ns_chainback * ns_to_sec, ref.ns_chainback/src.ns_chainback);
+        const float update_speedup = src.update_symbols_per_ms / ref.update_symbols_per_ms;
+        const float chainback_speedup = src.chainback_bits_per_ms / ref.chainback_bits_per_ms;
+        const float reset_speedup = src.reset_bits_per_ms / ref.reset_bits_per_ms;
+        printf("update        = %.3f symbols/ms (x%.2f)\n", src.update_symbols_per_ms, update_speedup);
+        printf("chainback     = %.3f bits/ms (x%.2f)\n", src.chainback_bits_per_ms, chainback_speedup);
+        printf("reset         = %.3f bits/ms (x%.2f)\n", src.reset_bits_per_ms, reset_speedup);
         printf("ber           = %.4f\n", src.bit_error_rate);
         printf("errors        = %zu/%zu\n", src.total_incorrect_bits, src.total_decoded_bits);
         printf("error_metric  = %" PRIu64 "\n",  src.total_error);
@@ -333,7 +334,6 @@ void init_test(
 
     // Run tests
     TestResults test_ref;
-    printf("Starting total_runs=%zu\n", total_runs);
     if constexpr(factory_t<K,R>::Scalar::is_valid) {
         auto vitdec = typename factory_t<K,R>::Scalar(branch_table, config.decoder_config);
         vitdec.set_traceback_length(total_input_bits);
@@ -341,7 +341,7 @@ void init_test(
             vitdec, 
             output_symbols.data(), output_symbols.size(), 
             tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
-            total_runs
+            total_duration_seconds
         );
 
         printf("> Scalar results\n");
@@ -358,7 +358,7 @@ void init_test(
             vitdec, 
             output_symbols.data(), output_symbols.size(), 
             tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
-            total_runs
+            total_duration_seconds
         );
 
         printf("> SIMD_SSE results\n");
@@ -373,7 +373,7 @@ void init_test(
             vitdec, 
             output_symbols.data(), output_symbols.size(), 
             tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
-            total_runs
+            total_duration_seconds
         );
 
         printf("> SIMD_AVX results\n");
@@ -388,7 +388,7 @@ void init_test(
             vitdec, 
             output_symbols.data(), output_symbols.size(), 
             tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
-            total_runs
+            total_duration_seconds
         );
 
         printf("> SIMD_NEON results\n");
@@ -403,42 +403,66 @@ TestResults run_test(
     T& vitdec, 
     const soft_t* symbols, const size_t total_symbols, 
     const uint8_t* in_bytes, uint8_t* out_bytes, const size_t total_input_bytes,
-    const size_t total_runs
+    const float total_duration_seconds
 ) {
     const size_t total_input_bits = total_input_bytes*8u;
     constexpr size_t print_rate = 1u;
 
+
     TestResults results;
-    for (size_t curr_run = 0u; curr_run < total_runs; curr_run++) {
-        if (curr_run % print_rate == 0) {
-            printf("Run: %zu/%zu\r", curr_run, total_runs);
+    uint64_t update_ns = 0;
+    uint64_t update_total_symbols = 0;
+    uint64_t reset_ns = 0;
+    uint64_t reset_total_bits = 0;
+    uint64_t chainback_ns = 0;
+    uint64_t chainback_total_bits = 0;
+
+    Timer total_time;
+    size_t curr_iteration = 0;
+    while (true) {
+        const float seconds_elapsed = float(total_time.get_delta<std::chrono::milliseconds>())*1e-3f;
+        if (seconds_elapsed > total_duration_seconds) {
+            break;
         }
+        curr_iteration++;
+        if (curr_iteration % 10 == 0) {
+            printf("Run: %.2f/%.2f\r", seconds_elapsed, total_duration_seconds);
+        }
+
         {
             Timer t;
             vitdec.reset();
-            results.ns_reset += float(t.get_delta());
+            reset_ns += t.get_delta();
+            reset_total_bits += vitdec.get_traceback_length();
         }
         {
             Timer t;
             vitdec.update(symbols, total_symbols);
-            results.ns_update += float(t.get_delta());
+            update_ns += t.get_delta();
+            update_total_symbols += total_symbols;
         }
         {
             Timer t;
             vitdec.chainback(out_bytes, total_input_bits, 0u);
-            results.ns_chainback += float(t.get_delta());
+            chainback_ns += t.get_delta();
+            chainback_total_bits += total_input_bits;
         }
         {
             const uint64_t error = vitdec.get_error();
             results.total_error += error;
         }
-        const size_t total_errors = get_total_bit_errors(in_bytes, out_bytes, total_input_bytes);
-        results.total_incorrect_bits += total_errors;
+        const size_t total_bit_errors = get_total_bit_errors(in_bytes, out_bytes, total_input_bytes);
+        results.total_incorrect_bits += total_bit_errors;
         results.total_decoded_bits += total_input_bits;
         results.total_runs++;
     }
     printf("%*s\r", 100, "");
 
     results.bit_error_rate = float(results.total_incorrect_bits) / float(results.total_decoded_bits);
+
+    const float rescale_ns_to_ms = 1e+6f;
+    results.update_symbols_per_ms = float(update_total_symbols) / float(update_ns)    * rescale_ns_to_ms;
+    results.reset_bits_per_ms     = float(reset_total_bits)     / float(reset_ns)     * rescale_ns_to_ms;
+    results.chainback_bits_per_ms = float(chainback_total_bits) / float(chainback_ns) * rescale_ns_to_ms;
     return results;
 }
