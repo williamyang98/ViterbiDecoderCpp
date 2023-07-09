@@ -8,134 +8,137 @@
 #include "../viterbi_decoder_core.h"
 #include <stdint.h>
 #include <stddef.h>
+#include <stdalign.h>
 #include <assert.h>
 #include <vector>
 #include <immintrin.h>
-
-#ifdef _MSC_VER
-#define ALIGNED(x) __declspec(align(x))
-#else
-#define ALIGNED(x) __attribute__ ((aligned(x)))
-#endif
 
 // Vectorisation using AVX
 //     8bit integers for errors, soft-decision values
 //     32 way vectorisation from 256bits/8bits 
 //     64bit decision type since 32 x 2 decisions bits per branch
 template <size_t constraint_length, size_t code_rate>
-class ViterbiDecoder_AVX_u8: public ViterbiDecoder_Core<constraint_length, code_rate, uint8_t, int8_t, uint64_t>
+class ViterbiDecoder_AVX_u8: public ViterbiDecoder_Core<constraint_length,code_rate,uint8_t,int8_t,uint64_t>
 {
 private:
-    using Base = ViterbiDecoder_Core<constraint_length, code_rate, uint8_t, int8_t, uint64_t>;
+    using Base = ViterbiDecoder_Core<constraint_length,code_rate,uint8_t,int8_t,uint64_t>;
+    using decision_bits_t = typename Base::Decisions::format_t;
 private:
-    // metric:       NUMSTATES   * sizeof(u8)                       = NUMSTATES
-    // branch_table: NUMSTATES/2 * sizeof(s8)                       = NUMSTATES/2  
-    // decision:     NUMSTATES/DECISION_BITSIZE * DECISION_BYTESIZE = NUMSTATES/8
-    // 
-    // m256_metric_width:       NUMSTATES   / sizeof(__m256i) = NUMSTATES/32
-    // m256_branch_table_width: NUMSTATES/2 / sizeof(__m256i) = NUMSTATES/64
-    // u32_decision_width:      NUMSTATES/8 / sizeof(u64)     = NUMSTATES/64
-    static constexpr size_t ALIGN_AMOUNT = sizeof(__m256i);
-    static constexpr size_t m256_width_metric = Base::NUMSTATES/ALIGN_AMOUNT;
-    static constexpr size_t m256_width_branch_table = Base::NUMSTATES/(2u*ALIGN_AMOUNT);
-    static constexpr size_t u32_width_decision = Base::NUMSTATES/(2u*ALIGN_AMOUNT); 
+    // Calculate the minimum constraint length for vectorisation
+    // We require: stride(metric)/2 = stride(branch_table) = stride(decision)
+    // total_states = 2^(K-1)
+    //
+    // sizeof(metric)       = total_states   * sizeof(u8) = 2^(K-1)
+    // sizeof(branch_table) = total_states/2 * sizeof(s8) = 2^(K-2)
+    // sizeof(decision)     = total_states   / 8          = 2^(K-4)
+    //
+    // sizeof(__m256i)      = 32 = 2^5
+    // stride(metric)       = sizeof(metric)       / sizeof(__m128i) = 2^(K-6)
+    // stride(branch_table) = sizeof(branch_table) / sizeof(__m128i) = 2^(K-7)
+    // stride(decision)     = sizeof(decision)     / sizeof(u64)     = 2^(K-7)
+    //
+    // For stride(...) >= 1, then K >= 7
+    static constexpr size_t SIMD_ALIGN = sizeof(__m256i);
+    static constexpr size_t v_stride_metric = Base::Metrics::SIZE_IN_BYTES/SIMD_ALIGN;
+    static constexpr size_t v_stride_branch_table = Base::BranchTable::SIZE_IN_BYTES/SIMD_ALIGN;
+    static constexpr size_t v_stride_decision_bits = Base::Decisions::SIZE_IN_BYTES/SIMD_ALIGN; 
     static constexpr size_t K_min = 7;
-    uint64_t renormalisation_bias;
+    uint64_t m_renormalisation_bias;
 public:
     static constexpr bool is_valid = Base::K >= K_min;
 
     template <typename ... U>
-    ViterbiDecoder_AVX_u8(U&& ... args)
-    :   Base(std::forward<U>(args)...)
-    {
+    ViterbiDecoder_AVX_u8(U&& ... args): Base(std::forward<U>(args)...) {
         static_assert(is_valid, "Insufficient constraint length for vectorisation");
-        static_assert(Base::METRIC_ALIGNMENT % ALIGN_AMOUNT == 0);
-        static_assert(Base::branch_table.alignment % ALIGN_AMOUNT == 0);
+        static_assert(Base::Metrics::ALIGNMENT % SIMD_ALIGN == 0);
+        static_assert(Base::BranchTable::ALIGNMENT % SIMD_ALIGN == 0);
     }
 
-    inline
     uint64_t get_error(const size_t end_state=0u) {
-        auto* old_metric = Base::get_old_metric();
+        auto* old_metric = Base::m_metrics.get_old();
         const uint16_t normalised_error = old_metric[end_state % Base::NUMSTATES];
-        return renormalisation_bias + uint64_t(normalised_error);
+        return m_renormalisation_bias + uint64_t(normalised_error);
     }
 
-    inline
     void reset(const size_t starting_state = 0u) {
         Base::reset(starting_state);
-        renormalisation_bias = uint64_t(0u);
+        m_renormalisation_bias = uint64_t(0u);
     }
 
-    inline
     void update(const int8_t* symbols, const size_t N) {
         // number of symbols must be a multiple of the code rate
         assert(N % Base::R == 0);
         const size_t total_decoded_bits = N / Base::R;
         const size_t max_decoded_bits = Base::get_traceback_length() + Base::TOTAL_STATE_BITS;
-        assert((total_decoded_bits + Base::curr_decoded_bit) <= max_decoded_bits);
+        assert((total_decoded_bits + Base::m_current_decoded_bit) <= max_decoded_bits);
 
-        for (size_t s = 0; s < N; s+=(Base::R)) {
-            auto* decision = Base::get_decision(Base::curr_decoded_bit);
-            auto* old_metric = Base::get_old_metric();
-            auto* new_metric = Base::get_new_metric();
+        for (size_t s = 0; s < N; s+=Base::R) {
+            auto* decision = Base::m_decisions[Base::m_current_decoded_bit];
+            auto* old_metric = Base::m_metrics.get_old();
+            auto* new_metric = Base::m_metrics.get_new();
             bfly(&symbols[s], decision, old_metric, new_metric);
-            if (new_metric[0] >= Base::config.renormalisation_threshold) {
+            if (new_metric[0] >= Base::m_config.renormalisation_threshold) {
                 renormalise(new_metric);
             }
-            Base::swap_metrics();
-            Base::curr_decoded_bit++;
+            Base::m_metrics.swap();
+            Base::m_current_decoded_bit++;
         }
     }
 private:
-    inline
-    void bfly(const int8_t* symbols, uint64_t* decision, uint8_t* old_metric, uint8_t* new_metric) 
-    {
-        const __m256i* m256_branch_table = reinterpret_cast<const __m256i*>(Base::branch_table.data());
-        __m256i* m256_old_metric = reinterpret_cast<__m256i*>(old_metric);
-        __m256i* m256_new_metric = reinterpret_cast<__m256i*>(new_metric);
+    void bfly(const int8_t* symbols, decision_bits_t* decision, uint8_t* old_metric, uint8_t* new_metric) {
+        const __m256i* v_branch_table = reinterpret_cast<const __m256i*>(Base::m_branch_table.data());
+        __m256i* v_old_metrics = reinterpret_cast<__m256i*>(old_metric);
+        __m256i* v_new_metrics = reinterpret_cast<__m256i*>(new_metric);
+        uint64_t* v_decision = reinterpret_cast<uint64_t*>(decision);
 
-        assert(((uintptr_t)m256_branch_table % ALIGN_AMOUNT) == 0);
-        assert(((uintptr_t)m256_old_metric % ALIGN_AMOUNT) == 0);
-        assert(((uintptr_t)m256_new_metric % ALIGN_AMOUNT) == 0);
+        assert(uintptr_t(v_branch_table) % SIMD_ALIGN == 0);
+        assert(uintptr_t(v_old_metrics)  % SIMD_ALIGN == 0);
+        assert(uintptr_t(v_new_metrics)  % SIMD_ALIGN == 0);
 
-        __m256i m256_symbols[Base::R];
+        __m256i v_symbols[Base::R];
 
         // Vectorise constants
         for (size_t i = 0; i < Base::R; i++) {
-            m256_symbols[i] = _mm256_set1_epi8(symbols[i]);
+            v_symbols[i] = _mm256_set1_epi8(symbols[i]);
         }
-        const __m256i max_error = _mm256_set1_epi8(Base::config.soft_decision_max_error);
+        const __m256i max_error = _mm256_set1_epi8(Base::m_config.soft_decision_max_error);
 
-        for (size_t curr_state = 0u; curr_state < m256_width_branch_table; curr_state++) {
+        for (size_t curr_state = 0u; curr_state < v_stride_branch_table; curr_state++) {
             // Total errors across R symbols
             __m256i total_error = _mm256_set1_epi8(0);
             for (size_t i = 0u; i < Base::R; i++) {
-                __m256i error = _mm256_subs_epi8(m256_branch_table[i*m256_width_branch_table+curr_state], m256_symbols[i]);
+                __m256i error = _mm256_subs_epi8(v_branch_table[i*v_stride_branch_table+curr_state], v_symbols[i]);
                 error = _mm256_abs_epi8(error);
                 total_error = _mm256_adds_epu8(total_error, error);
             }
 
             // Butterfly algorithm
-            const __m256i m_total_error = _mm256_subs_epu8(max_error, total_error);
-            const __m256i m0 = _mm256_adds_epu8(m256_old_metric[curr_state                      ],   total_error);
-            const __m256i m1 = _mm256_adds_epu8(m256_old_metric[curr_state + m256_width_metric/2], m_total_error);
-            const __m256i m2 = _mm256_adds_epu8(m256_old_metric[curr_state                      ], m_total_error);
-            const __m256i m3 = _mm256_adds_epu8(m256_old_metric[curr_state + m256_width_metric/2],   total_error);
-            const __m256i survivor0 = _mm256_min_epu8(m0, m1);
-            const __m256i survivor1 = _mm256_min_epu8(m2, m3);
-            const __m256i decision0 = _mm256_cmpeq_epi8(survivor0, m1);
-            const __m256i decision1 = _mm256_cmpeq_epi8(survivor1, m3);
+            const size_t curr_state_0 = curr_state;
+            const size_t curr_state_1 = curr_state + v_stride_metric/2;
+            const size_t next_state_0 = (curr_state << 1) | 0;
+            const size_t next_state_1 = (curr_state << 1) | 1;
+
+            const __m256i inverse_error = _mm256_subs_epu8(max_error, total_error);
+            const __m256i next_error_0_0 = _mm256_adds_epu8(v_old_metrics[curr_state_0],   total_error);
+            const __m256i next_error_1_0 = _mm256_adds_epu8(v_old_metrics[curr_state_1], inverse_error);
+            const __m256i next_error_0_1 = _mm256_adds_epu8(v_old_metrics[curr_state_0], inverse_error);
+            const __m256i next_error_1_1 = _mm256_adds_epu8(v_old_metrics[curr_state_1],   total_error);
+
+            const __m256i min_next_error_0 = _mm256_min_epu8(next_error_0_0, next_error_1_0);
+            const __m256i min_next_error_1 = _mm256_min_epu8(next_error_0_1, next_error_1_1);
+            const __m256i decision_0 = _mm256_cmpeq_epi8(min_next_error_0, next_error_1_0);
+            const __m256i decision_1 = _mm256_cmpeq_epi8(min_next_error_1, next_error_1_1);
 
             // Update metrics
-            const __m256i new_metric_lo = _mm256_unpacklo_epi8(survivor0, survivor1);
-            const __m256i new_metric_hi = _mm256_unpackhi_epi8(survivor0, survivor1);
+            const __m256i new_metric_lo = _mm256_unpacklo_epi8(min_next_error_0, min_next_error_1);
+            const __m256i new_metric_hi = _mm256_unpackhi_epi8(min_next_error_0, min_next_error_1);
             // Reshuffle into correct order along 128bit boundaries
-            m256_new_metric[2*curr_state+0] = _mm256_permute2x128_si256(new_metric_lo, new_metric_hi, 0b0010'0000);
-            m256_new_metric[2*curr_state+1] = _mm256_permute2x128_si256(new_metric_lo, new_metric_hi, 0b0011'0001);
+            v_new_metrics[next_state_0] = _mm256_permute2x128_si256(new_metric_lo, new_metric_hi, 0b0010'0000);
+            v_new_metrics[next_state_1] = _mm256_permute2x128_si256(new_metric_lo, new_metric_hi, 0b0011'0001);
 
             // Pack decision bits
-            const __m256i shuffled_decision_lo = _mm256_unpacklo_epi8(decision0, decision1);
-            const __m256i shuffled_decision_hi = _mm256_unpackhi_epi8(decision0, decision1);
+            const __m256i shuffled_decision_lo = _mm256_unpacklo_epi8(decision_0, decision_1);
+            const __m256i shuffled_decision_hi = _mm256_unpackhi_epi8(decision_0, decision_1);
             // Reshuffle into correct order along 128bit boundaries
             const __m256i packed_decision_lo = _mm256_permute2x128_si256(shuffled_decision_lo, shuffled_decision_hi, 0b0010'0000);
             const __m256i packed_decision_hi = _mm256_permute2x128_si256(shuffled_decision_lo, shuffled_decision_hi, 0b0011'0001);
@@ -144,25 +147,24 @@ private:
             // NOTE: mm256_movemask doesn't zero out the upper 32bits
             decision_bits_lo &= uint64_t(0xFFFFFFFF);
             decision_bits_hi &= uint64_t(0xFFFFFFFF);
-            decision[curr_state] = uint64_t(decision_bits_hi << 32u) | decision_bits_lo;
+            v_decision[curr_state] = uint64_t(decision_bits_hi << 32u) | decision_bits_lo;
         }
     }
 
-    inline
     void renormalise(uint8_t* metric) {
-        assert(((uintptr_t)metric % ALIGN_AMOUNT) == 0);
-        __m256i* m256_metric = reinterpret_cast<__m256i*>(metric);
+        assert(uintptr_t(metric) % SIMD_ALIGN == 0);
+        __m256i* v_metric = reinterpret_cast<__m256i*>(metric);
 
-        union {
+        union alignas(SIMD_ALIGN) {
             __m256i m256;
             __m128i m128[2];
             uint8_t u8[32]; 
-        } ALIGNED(ALIGN_AMOUNT) reduce_buffer;
+        } reduce_buffer;
 
         // Find minimum 
-        reduce_buffer.m256 = m256_metric[0];
-        for (size_t i = 1u; i < m256_width_metric; i++) {
-            reduce_buffer.m256 = _mm256_min_epu8(reduce_buffer.m256, m256_metric[i]);
+        reduce_buffer.m256 = v_metric[0];
+        for (size_t i = 1u; i < v_stride_metric; i++) {
+            reduce_buffer.m256 = _mm256_min_epu8(reduce_buffer.m256, v_metric[i]);
         }
 
         // Shift half of the array onto the other half and get the minimum between them
@@ -178,13 +180,12 @@ private:
         // Normalise to minimum
         const uint8_t min = reduce_buffer.u8[0];
         const __m256i vmin = _mm256_set1_epi8(min);
-        for (size_t i = 0u; i < m256_width_metric; i++) {
-            m256_metric[i] = _mm256_subs_epu8(m256_metric[i], vmin);
+        for (size_t i = 0u; i < v_stride_metric; i++) {
+            v_metric[i] = _mm256_subs_epu8(v_metric[i], vmin);
         }
 
         // Keep track of absolute error metrics
-        renormalisation_bias += uint64_t(min);
+        m_renormalisation_bias += uint64_t(min);
     }
 };
 
-#undef ALIGNED
