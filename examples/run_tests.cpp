@@ -172,7 +172,6 @@ void run_tests(
     for (const auto& simd_type: SIMD_Type_List) {
         SELECT_FACTORY_ITEM(factory_t, simd_type, K, R, {
             using decoder_t = it;
-            const char* name = get_simd_type_string(simd_type);
             if constexpr(decoder_t::is_valid) {
                 auto skip_key = TestKey(simd_type, decode_type, K, R);
                 const auto& skip_entry = SKIP_TESTS.find(skip_key);

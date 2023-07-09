@@ -13,13 +13,13 @@
 // #include "viterbi/x86/viterbi_decoder_avx_u16.h"
 // #include "viterbi/arm/viterbi_decoder_neon_u16.h"
 
-constexpr size_t K = 7;
-constexpr size_t R = 4;
-const uint8_t G[R] = { 109, 79, 83, 109 };
-
 // NOTE: Other example code uses alot of templating to select different viterbi decoders at runtime
 //       This example serves to demonstrate a simple use of the library if you just need one decoder type
 int main(int argc, char** argv) {
+    constexpr size_t K = 7;
+    constexpr size_t R = 4;
+    const uint8_t G[R] = { 109, 79, 83, 109 };
+
     // We are encoding each symbols as a 16bit value between -127 and +127
     const int16_t soft_decision_high = +127;
     const int16_t soft_decision_low  = -127;

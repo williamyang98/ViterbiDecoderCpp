@@ -18,7 +18,7 @@ template <
 class ViterbiDecoder_Scalar: public ViterbiDecoder_Core<constraint_length,code_rate,error_t,soft_t,decision_bits_t>
 {
 private:
-    using Base = ViterbiDecoder_Core<constraint_length,code_rate,error_t,soft_t>;    
+    using Base = ViterbiDecoder_Core<constraint_length,code_rate,error_t,soft_t,decision_bits_t>;    
     static constexpr size_t K_min = 2;
     absolute_error_t m_renormalisation_bias;
 public:
