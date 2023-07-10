@@ -47,7 +47,7 @@ public:
     static constexpr bool is_valid = Base::K >= K_min;
 
     template <typename sum_error_t>
-    static sum_error_t update(const int16_t* symbols, const size_t N) {
+    static sum_error_t update(Base& base, const int16_t* symbols, const size_t N) {
         static_assert(is_valid, "Insufficient constraint length for vectorisation");
         static_assert(Base::Metrics::ALIGNMENT % SIMD_ALIGN == 0);
         static_assert(Base::BranchTable::ALIGNMENT % SIMD_ALIGN == 0);
