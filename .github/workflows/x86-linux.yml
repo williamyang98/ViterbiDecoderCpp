@@ -2,7 +2,7 @@ name: x86-linux
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "dev" ]
 
 env:
   BUILD_TYPE: Release
