@@ -199,10 +199,10 @@ public:
         m_current_decoded_bit = 0u;
 
         auto* old_metrics = m_metrics.get_old();
-        for (size_t i = 0; i < m_metrics.NUMSTATES; i++) {
+        for (size_t i = 0; i < Metrics::NUMSTATES; i++) {
             old_metrics[i] = m_config.initial_non_start_error;
         }
-        constexpr size_t STATE_MASK = m_metrics.NUMSTATES-1;
+        constexpr size_t STATE_MASK = Metrics::NUMSTATES-1;
         old_metrics[starting_state & STATE_MASK] = m_config.initial_start_error;
     }
 
