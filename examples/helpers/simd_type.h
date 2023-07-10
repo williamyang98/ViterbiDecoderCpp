@@ -86,24 +86,24 @@ public:
 };
 
 #if defined(__SSE4_2__)
-#define __SELECT_FACTORY_ITEM_SSE(FACTORY, INDEX, K, R, BLOCK) case SIMD_Type::SIMD_SSE: { using it = typename FACTORY::SIMD_SSE<K,R>; BLOCK }; break;
+#define __SELECT_FACTORY_ITEM_SSE(FACTORY, INDEX, K, R, BLOCK) case SIMD_Type::SIMD_SSE: { using it = typename FACTORY::template SIMD_SSE<K,R>; BLOCK }; break;
 #else
 #define __SELECT_FACTORY_ITEM_SSE(FACTORY, INDEX, K, R, BLOCK)
 #endif
 #if defined(__AVX2__)
-#define __SELECT_FACTORY_ITEM_AVX(FACTORY, INDEX, K, R, BLOCK) case SIMD_Type::SIMD_AVX: { using it = typename FACTORY::SIMD_AVX<K,R>; BLOCK }; break;
+#define __SELECT_FACTORY_ITEM_AVX(FACTORY, INDEX, K, R, BLOCK) case SIMD_Type::SIMD_AVX: { using it = typename FACTORY::template SIMD_AVX<K,R>; BLOCK }; break;
 #else
 #define __SELECT_FACTORY_ITEM_AVX(FACTORY, INDEX, K, R, BLOCK)
 #endif
 #if defined(__SIMD_NEON__)
-#define __SELECT_FACTORY_ITEM_NEON(FACTORY, INDEX, K, R, BLOCK) case SIMD_Type::SIMD_NEON: { using it = typename FACTORY::SIMD_NEON<K,R>; BLOCK }; break;
+#define __SELECT_FACTORY_ITEM_NEON(FACTORY, INDEX, K, R, BLOCK) case SIMD_Type::SIMD_NEON: { using it = typename FACTORY::template SIMD_NEON<K,R>; BLOCK }; break;
 #else
 #define __SELECT_FACTORY_ITEM_NEON(FACTORY, INDEX, K, R, BLOCK)
 #endif
 
 #define SELECT_FACTORY_ITEM(FACTORY, INDEX, K, R, BLOCK) do {\
     switch (INDEX) {\
-    case SIMD_Type::SCALAR:   { using it = typename FACTORY::SCALAR<K,R>;   BLOCK }; break;\
+    case SIMD_Type::SCALAR:   { using it = typename FACTORY::template SCALAR<K,R>; BLOCK }; break;\
     __SELECT_FACTORY_ITEM_SSE(FACTORY, INDEX, K, R, BLOCK)\
     __SELECT_FACTORY_ITEM_AVX(FACTORY, INDEX, K, R, BLOCK)\
     __SELECT_FACTORY_ITEM_NEON(FACTORY, INDEX, K, R, BLOCK)\
