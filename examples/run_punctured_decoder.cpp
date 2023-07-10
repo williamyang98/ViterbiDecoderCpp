@@ -9,6 +9,7 @@
 #include <chrono>
 
 #include "viterbi/convolutional_encoder_lookup.h"
+#include "viterbi/viterbi_decoder_core.h"
 
 #include "helpers/decode_type.h"
 #include "helpers/simd_type.h"
@@ -88,9 +89,9 @@ size_t run_punctured_encoder(
     const uint8_t* input_bytes, const size_t total_input_bytes
 );
 
-template <typename soft_t, class decoder_t>
-void run_punctured_decoder(
-    decoder_t& vitdec, 
+template <class decoder_t, typename soft_t, typename error_t>
+uint64_t run_punctured_decoder(
+    ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
     const soft_t soft_decision_unpunctured,
     soft_t* output_symbols, const size_t total_output_symbols
 );
@@ -235,17 +236,17 @@ void run_test(
 
     // decoding
     auto branch_table = ViterbiBranchTable<K,R,soft_t>(G, config.soft_decision_high, config.soft_decision_low);
+    auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(branch_table, config.decoder_config);
     const soft_t unpunctured_value = 0;
 
+    vitdec.set_traceback_length(total_data_bits);
     for (const auto& simd_type: SIMD_Type_List) {
         SELECT_FACTORY_ITEM(factory_t, simd_type, K, R, {
             using decoder_t = it;
             if constexpr(decoder_t::is_valid) {
-                auto vitdec = decoder_t(branch_table, config.decoder_config);
-                vitdec.set_traceback_length(total_data_bits);
-                run_punctured_decoder(vitdec, unpunctured_value, output_symbols.data(), total_output_symbols);
+                const uint64_t accumulated_error = run_punctured_decoder<decoder_t>(vitdec, unpunctured_value, output_symbols.data(), total_output_symbols);
                 vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
-                const uint64_t traceback_error = vitdec.get_error();
+                const uint64_t traceback_error = accumulated_error + uint64_t(vitdec.get_error());
                 const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_data_bytes);
                 const float bit_error_rate = (float)total_errors / (float)total_data_bits * 100.0f;
 
@@ -314,37 +315,42 @@ size_t run_punctured_encoder(
     return total_output_symbols;
 }
 
-template <typename soft_t, class decoder_t>
-void run_punctured_decoder(
-    decoder_t& vitdec, 
+template <class decoder_t, typename soft_t, typename error_t>
+uint64_t run_punctured_decoder(
+    ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
     const soft_t soft_decision_unpunctured,
     soft_t* output_symbols, const size_t total_output_symbols
 ) {
     auto output_symbols_buf = span_t(output_symbols, total_output_symbols);
-    size_t total_read_symbols = 0;
 
+    PuncturedDecodeResult res;
     vitdec.reset();
+    uint64_t accumulated_error = 0;
 
-    total_read_symbols = decode_punctured_symbols(
+    res = decode_punctured_symbols<decoder_t>(
         vitdec, soft_decision_unpunctured,
         output_symbols_buf.data(), output_symbols_buf.size(), 
         PI_16, PI_total_bits, 
         PI_total_bits*R*PI_16_total_count);
-    output_symbols_buf = output_symbols_buf.front(total_read_symbols);
+    accumulated_error += res.accumulated_error;
+    output_symbols_buf = output_symbols_buf.front(res.index_punctured_symbol);
 
-    total_read_symbols = decode_punctured_symbols(
+    res = decode_punctured_symbols<decoder_t>(
         vitdec, soft_decision_unpunctured,
         output_symbols_buf.data(), output_symbols_buf.size(), 
         PI_15, PI_total_bits, 
         PI_total_bits*R*PI_15_total_count);
-    output_symbols_buf = output_symbols_buf.front(total_read_symbols);
+    accumulated_error += res.accumulated_error;
+    output_symbols_buf = output_symbols_buf.front(res.index_punctured_symbol);
 
-    total_read_symbols = decode_punctured_symbols(
+    res = decode_punctured_symbols<decoder_t>(
         vitdec, soft_decision_unpunctured,
         output_symbols_buf.data(), output_symbols_buf.size(), 
         PI_X, 24, 
         24);
-    output_symbols_buf = output_symbols_buf.front(total_read_symbols);
+    accumulated_error += res.accumulated_error;
+    output_symbols_buf = output_symbols_buf.front(res.index_punctured_symbol);
 
     assert(output_symbols_buf.size() == 0u);
+    return accumulated_error;
 }

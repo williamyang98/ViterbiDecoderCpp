@@ -5,23 +5,29 @@
 #include <assert.h>
 #include <vector>
 #include "viterbi/convolutional_encoder.h"
+#include "viterbi/viterbi_decoder_core.h"
 #include "utility/basic_ops.h"
 
+struct PuncturedDecodeResult {
+    size_t index_punctured_symbol = 0;
+    uint64_t accumulated_error = 0;
+};
+
 // Reads symbols and depunctured the number of requested symbols
-template <typename decoder_t, typename soft_t, typename input_t = soft_t>
-size_t decode_punctured_symbols(
-    decoder_t& decoder, 
+template <typename decoder_t, size_t K, size_t R, typename error_t, typename soft_t, typename input_t>
+PuncturedDecodeResult decode_punctured_symbols(
+    ViterbiDecoder_Core<K,R,error_t,soft_t>& decoder, 
     const soft_t unpunctured_symbol_value,
     const input_t* punctured_symbols, const size_t total_symbols,
     const bool* puncture_code, const size_t puncture_code_length,
     const size_t requested_output_symbols)
 {
-    const size_t R = decoder.R;
     auto symbols = std::vector<soft_t>(R);
 
-    size_t index_punctured_symbol = 0;
     size_t index_puncture_code = 0;
     size_t index_output_symbol = 0;
+    PuncturedDecodeResult res;
+
     while (index_output_symbol < requested_output_symbols) {
         for (size_t i = 0u; i < R; i++) {
             soft_t& v = symbols[i];
@@ -30,22 +36,22 @@ size_t decode_punctured_symbols(
                 // NOTE: If our puncture code is invalid or we request too many symbols
                 //       we may expect a punctured symbol when there isn't one
                 //       Ideally this is caught during development but as a failsafe we exit early
-                assert(index_punctured_symbol < total_symbols);
-                if (index_punctured_symbol >= total_symbols) { 
-                    return index_punctured_symbol;
+                assert(res.index_punctured_symbol < total_symbols);
+                if (res.index_punctured_symbol >= total_symbols) { 
+                    return res;
                 }
-                v = soft_t(punctured_symbols[index_punctured_symbol]);
-                index_punctured_symbol++;
+                v = soft_t(punctured_symbols[res.index_punctured_symbol]);
+                res.index_punctured_symbol++;
             } else {
                 v = unpunctured_symbol_value;
             }
             index_puncture_code = (index_puncture_code+1) % puncture_code_length;
             index_output_symbol++;
         }
-        decoder.update(symbols.data(), R);
+        res.accumulated_error += decoder_t::template update<uint64_t>(decoder, symbols.data(), R);
     }
 
-    return index_punctured_symbol;
+    return res;
 }
 
 template <typename T>

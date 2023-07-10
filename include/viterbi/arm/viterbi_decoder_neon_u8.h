@@ -18,7 +18,7 @@
 //     16 way vectorisation from 128bits/16bits 
 //     32bit decision type since 16 x 2 decisions bits per branch
 template <size_t constraint_length, size_t code_rate>
-class ViterbiDecoder_NEON_u8: public ViterbiDecoder_Core<constraint_length,code_rate,uint8_t,int8_t>
+class ViterbiDecoder_NEON_u8
 {
 private:
     using Base = ViterbiDecoder_Core<constraint_length,code_rate,uint8_t,int8_t>;
@@ -43,50 +43,38 @@ private:
     static constexpr size_t v_stride_branch_table = Base::BranchTable::SIZE_IN_BYTES/SIMD_ALIGN;
     static constexpr size_t v_stride_decision_bits = Base::Decisions::SIZE_IN_BYTES/SIMD_ALIGN; 
     static constexpr size_t K_min = 6;
-    uint64_t m_renormalisation_bias;
 public:
     static constexpr bool is_valid = Base::K >= K_min;
 
-    template <typename ... U>
-    ViterbiDecoder_NEON_u8(U&& ... args): Base(std::forward<U>(args)...) {
+    template <typename sum_error_t>
+    static sum_error_t update(Base& base, const int8_t* symbols, const size_t N) {
         static_assert(is_valid, "Insufficient constraint length for vectorisation");
         static_assert(Base::Metrics::ALIGNMENT % SIMD_ALIGN == 0);
         static_assert(Base::BranchTable::ALIGNMENT % SIMD_ALIGN == 0);
-    }
 
-    uint64_t get_error(const size_t end_state=0u) {
-        auto* old_metric = Base::m_metrics.get_old();
-        const uint8_t normalised_error = old_metric[end_state % Base::NUMSTATES];
-        return m_renormalisation_bias + uint64_t(normalised_error);
-    }
-
-    void reset(const size_t starting_state = 0u) {
-        Base::reset(starting_state);
-        m_renormalisation_bias = uint64_t(0u);
-    }
-
-    void update(const int8_t* symbols, const size_t N) {
         // number of symbols must be a multiple of the code rate
         assert(N % Base::R == 0);
         const size_t total_decoded_bits = N / Base::R;
-        const size_t max_decoded_bits = Base::get_traceback_length() + Base::TOTAL_STATE_BITS;
-        assert((total_decoded_bits + Base::m_current_decoded_bit) <= max_decoded_bits);
+        const size_t max_decoded_bits = base.get_traceback_length() + Base::TOTAL_STATE_BITS;
+        assert((total_decoded_bits + base.m_current_decoded_bit) <= max_decoded_bits);
 
+        sum_error_t total_error = 0;
         for (size_t s = 0; s < N; s+=Base::R) {
-            auto* decision = Base::m_decisions[Base::m_current_decoded_bit];
-            auto* old_metric = Base::m_metrics.get_old();
-            auto* new_metric = Base::m_metrics.get_new();
-            bfly(&symbols[s], decision, old_metric, new_metric);
-            if (new_metric[0] >= Base::m_config.renormalisation_threshold) {
-                renormalise(new_metric);
+            auto* decision = base.m_decisions[base.m_current_decoded_bit];
+            auto* old_metric = base.m_metrics.get_old();
+            auto* new_metric = base.m_metrics.get_new();
+            bfly(base, &symbols[s], decision, old_metric, new_metric);
+            if (new_metric[0] >= base.m_config.renormalisation_threshold) {
+                total_error += sum_error_t(renormalise(new_metric));
             }
-            Base::m_metrics.swap();
-            Base::m_current_decoded_bit++;
+            base.m_metrics.swap();
+            base.m_current_decoded_bit++;
         }
+        return total_error;
     }
 private:
-    void bfly(const int8_t* symbols, decision_bits_t* decision, uint8_t* old_metric, uint8_t* new_metric) {
-        const int8x16_t* v_branch_table = reinterpret_cast<const int8x16_t*>(Base::m_branch_table.data());
+    static void bfly(Base& base, const int8_t* symbols, decision_bits_t* decision, uint8_t* old_metric, uint8_t* new_metric) {
+        const int8x16_t* v_branch_table = reinterpret_cast<const int8x16_t*>(base.m_branch_table.data());
         uint8x16_t* v_old_metrics = reinterpret_cast<uint8x16_t*>(old_metric);
         uint8x16_t* v_new_metrics = reinterpret_cast<uint8x16_t*>(new_metric);
         uint32_t* v_decision = reinterpret_cast<uint32_t*>(decision);
@@ -101,7 +89,7 @@ private:
         for (size_t i = 0; i < Base::R; i++) {
             v_symbols[i] = vmovq_n_s8(symbols[i]);
         }
-        const uint8x16_t max_error = vmovq_n_u8(Base::m_config.soft_decision_max_error);
+        const uint8x16_t max_error = vmovq_n_u8(base.m_config.soft_decision_max_error);
 
         for (size_t curr_state = 0u; curr_state < v_stride_branch_table; curr_state++) {
             // Total errors across R symbols
@@ -140,7 +128,7 @@ private:
         }
     }
 
-    void renormalise(uint8_t* metric) {
+    static uint8_t renormalise(uint8_t* metric) {
         assert(uintptr_t(metric) % SIMD_ALIGN == 0);
         uint8x16_t* v_metric = reinterpret_cast<uint8x16_t*>(metric);
 
@@ -157,11 +145,10 @@ private:
             v_metric[i] = vqsubq_u8(v_metric[i], vmin);
         }
 
-        // Keep track of absolute error metrics
-        m_renormalisation_bias += uint64_t(min);
+        return min;
     }
 
-    uint32_t pack_decision_bits(uint8x16_t decision_0, uint8x16_t decision_1) {
+    static uint32_t pack_decision_bits(uint8x16_t decision_0, uint8x16_t decision_1) {
         alignas(SIMD_ALIGN) constexpr uint8_t _d0_mask[16] = {
             1<<0, 1<<2, 1<<4, 1<<6,
             1<<0, 1<<2, 1<<4, 1<<6,

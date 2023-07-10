@@ -10,6 +10,7 @@
 
 #include "viterbi/convolutional_encoder.h"
 #include "viterbi/convolutional_encoder_shift_register.h"
+#include "viterbi/viterbi_decoder_core.h"
 
 #include "helpers/common_codes.h"
 #include "helpers/simd_type.h"
@@ -78,9 +79,9 @@ void run_tests(
     const size_t total_input_bytes 
 );
 
-template <typename soft_t, class T>
+template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t>
 TestResult run_test(
-    T& vitdec, 
+    ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
     ConvolutionalEncoder* enc, 
     const uint64_t noise_level,
     const bool is_soft_noise,
@@ -168,6 +169,7 @@ void run_tests(
     const Decoder_Config<soft_t, error_t> config = config_factory(code.R);
     auto enc = ConvolutionalEncoder_ShiftRegister(code.K, code.R, code.G.data());
     auto branch_table = ViterbiBranchTable<K,R,soft_t>(code.G.data(), config.soft_decision_high, config.soft_decision_low);
+    auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(branch_table, config.decoder_config);
 
     for (const auto& simd_type: SIMD_Type_List) {
         SELECT_FACTORY_ITEM(factory_t, simd_type, K, R, {
@@ -180,8 +182,7 @@ void run_tests(
                     print_skip_message(code, decode_type, simd_type, reason);
                     global_results.total_skipped++;
                 } else {
-                    auto vitdec = decoder_t(branch_table, config.decoder_config);
-                    const auto res = run_test(
+                    const auto res = run_test<decoder_t>(
                         vitdec, &enc, 
                         noise_level, is_soft_noise, 
                         total_input_bytes, 
@@ -198,9 +199,9 @@ void run_tests(
     }
 }
 
-template <typename soft_t, class T>
+template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t>
 TestResult run_test(
-    T& vitdec, 
+    ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
     ConvolutionalEncoder* enc, 
     const uint64_t noise_level,
     const bool is_soft_noise,
@@ -210,8 +211,6 @@ TestResult run_test(
 ) {
     assert(vitdec.K == enc->K);
     assert(vitdec.R == enc->R);
-    const size_t K = vitdec.K; 
-    const size_t R = vitdec.R; 
     const size_t total_input_bits = total_input_bytes*8u;
     vitdec.set_traceback_length(total_input_bits);
 
@@ -249,9 +248,9 @@ TestResult run_test(
 
     const size_t total_output_symbols = output_symbols.size();
     vitdec.reset();
-    vitdec.update(output_symbols.data(), total_output_symbols);
+    const uint64_t accumulated_error = decoder_t::template update<uint64_t>(vitdec, output_symbols.data(), total_output_symbols);
+    const uint64_t error = accumulated_error + uint64_t(vitdec.get_error());
     vitdec.chainback(rx_input_bytes.data(), total_input_bits, 0u);
-    const uint64_t error = vitdec.get_error();
 
     const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes);
 

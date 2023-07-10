@@ -7,6 +7,7 @@
 #include "viterbi/convolutional_encoder_lookup.h"
 #include "helpers/test_helpers.h"
 
+#include "viterbi/viterbi_decoder_core.h"
 #include "viterbi/viterbi_decoder_scalar.h"
 // Uncomment to select different decoder
 // #include "viterbi/x86/viterbi_decoder_sse_u16.h"
@@ -64,18 +65,19 @@ int main(int argc, char** argv) {
     std::vector<uint8_t> rx_input_bytes;
     rx_input_bytes.resize(total_input_bytes);
     auto branch_table = ViterbiBranchTable<K,R,int16_t>(G, soft_decision_high, soft_decision_low);
+    auto vitdec = ViterbiDecoder_Core<K,R,uint16_t,int16_t>(branch_table, decoder_config);
 
     // NOTE: Up to you to choose your desired decoder type
-    // auto vitdec = ViterbiDecoder_AVX_u16<K,R>(branch_table, decoder_config);
-    // auto vitdec = ViterbiDecoder_SSE_u16<K,R>(branch_table, decoder_config);
-    // auto vitdec = ViterbiDecoder_NEON_u16<K,R>(branch_table, decoder_config);
-    auto vitdec = ViterbiDecoder_Scalar<K,R,uint16_t,int16_t>(branch_table, decoder_config);
+    // using Decoder = typename ViterbiDecoder_AVX_u16<K,R>;
+    // using Decoder = typename ViterbiDecoder_SSE_u16<K,R>;
+    // using Decoder = typename ViterbiDecoder_NEON_u16<K,R>;
+    using Decoder = ViterbiDecoder_Scalar<K,R,uint16_t,int16_t>;
 
     vitdec.set_traceback_length(total_input_bits);
     vitdec.reset();
-    vitdec.update(output_symbols.data(), output_symbols.size());
+    const uint64_t accumulated_error = Decoder::template update<uint64_t>(vitdec, output_symbols.data(), output_symbols.size());
+    const uint64_t error = accumulated_error + uint64_t(vitdec.get_error());
     vitdec.chainback(rx_input_bytes.data(), total_input_bits);
-    const uint64_t error = vitdec.get_error();
     printf("error_metric=%" PRIu64 "\n", error);
 
 

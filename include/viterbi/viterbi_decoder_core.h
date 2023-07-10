@@ -187,6 +187,13 @@ public:
         return N - TOTAL_STATE_BITS;
     }
 
+    /// @brief Get the normalised error at a specified end state
+    error_t get_error(const size_t end_state = 0u) {
+        assert(end_state < Metrics::NUMSTATES);
+        auto* old_metrics = m_metrics.get_old();
+        return old_metrics[end_state];
+    }
+
     /// @brief Prime the error metrics for a clean decode run
     void reset(const size_t starting_state = 0u) {
         m_current_decoded_bit = 0u;
@@ -223,7 +230,7 @@ public:
             bytes_out[curr_decoded_byte] = decode_buffer.get_data();
         }
     }
-protected:
+public:
     const BranchTable& m_branch_table;
     const Config m_config;
     Metrics m_metrics;
