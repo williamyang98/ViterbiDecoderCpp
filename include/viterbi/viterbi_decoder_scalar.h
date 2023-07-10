@@ -11,14 +11,13 @@
 #include <vector>
 #include <assert.h>
  
-template <
-    size_t constraint_length, size_t code_rate, typename error_t, typename soft_t, 
-    typename decision_bits_t = uint64_t, typename absolute_error_t = uint64_t
->
-class ViterbiDecoder_Scalar: public ViterbiDecoder_Core<constraint_length,code_rate,error_t,soft_t,decision_bits_t>
+template <size_t constraint_length, size_t code_rate, typename error_t, typename soft_t, typename absolute_error_t = uint64_t>
+class ViterbiDecoder_Scalar: public ViterbiDecoder_Core<constraint_length,code_rate,error_t,soft_t>
 {
 private:
-    using Base = ViterbiDecoder_Core<constraint_length,code_rate,error_t,soft_t,decision_bits_t>;    
+    using Base = ViterbiDecoder_Core<constraint_length,code_rate,error_t,soft_t>;    
+    using decision_bits_t = typename Base::Decisions::format_t;
+private:
     static constexpr size_t K_min = 2;
     absolute_error_t m_renormalisation_bias;
 public:
@@ -70,6 +69,10 @@ public:
 private:
     /// @brief Process R symbols and output 1 decoded bit
     void bfly(const soft_t* symbols, decision_bits_t* decision, error_t* old_metric, error_t* new_metric) {
+        for (size_t i = 0; i < Base::Decisions::TOTAL_BLOCKS; i++) {
+            decision[i] = 0;
+        }
+
         for (size_t curr_state = 0u; curr_state < Base::BranchTable::NUMSTATES; curr_state++) {
             // Error associated with state given symbols
             error_t total_error = 0u;

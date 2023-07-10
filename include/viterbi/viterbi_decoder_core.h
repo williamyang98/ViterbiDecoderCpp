@@ -71,7 +71,7 @@ public:
         return &buffer[index].blocks[0];
     }
     void reset() {
-        std::memset(buffer.data(), 0, buffer.size()*sizeof(format_t));
+        std::memset(buffer.data(), 0, buffer.size()*sizeof(blocks_t));
     }
 private:
     struct blocks_t {
@@ -150,7 +150,7 @@ private:
 
 // Core data structures for viterbi decoder
 // Traceback technique is the same for all types of viterbi decoders
-template <size_t constraint_length, size_t code_rate, typename error_t, typename soft_t, typename decision_bit_t = uint64_t>
+template <size_t constraint_length, size_t code_rate, typename error_t, typename soft_t>
 class ViterbiDecoder_Core
 {
 public:
@@ -161,7 +161,7 @@ public:
     using BranchTable = ViterbiBranchTable<K,R,soft_t>;
     using Config = ViterbiDecoder_Config<error_t>;
     using Metrics = ViterbiErrorMetrics<K,error_t>;
-    using Decisions = ViterbiDecisionBits<K,decision_bit_t>;
+    using Decisions = ViterbiDecisionBits<K,uintptr_t>;
 public:
     ViterbiDecoder_Core(const BranchTable& _branch_table, const Config& _config)
     :   m_branch_table(_branch_table), m_config(_config), m_decisions()
@@ -189,7 +189,6 @@ public:
 
     /// @brief Prime the error metrics for a clean decode run
     void reset(const size_t starting_state = 0u) {
-        m_decisions.reset();
         m_current_decoded_bit = 0u;
 
         auto* old_metrics = m_metrics.get_old();

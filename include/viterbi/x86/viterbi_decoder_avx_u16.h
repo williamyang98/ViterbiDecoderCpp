@@ -18,10 +18,10 @@
 //     16 way vectorisation from 256bits/16bits 
 //     32bit decision type since 16 x 2 decisions bits per branch
 template <size_t constraint_length, size_t code_rate>
-class ViterbiDecoder_AVX_u16: public ViterbiDecoder_Core<constraint_length,code_rate,uint16_t,int16_t,uint32_t>
+class ViterbiDecoder_AVX_u16: public ViterbiDecoder_Core<constraint_length,code_rate,uint16_t,int16_t>
 {
 private:
-    using Base = ViterbiDecoder_Core<constraint_length,code_rate,uint16_t,int16_t,uint32_t>;
+    using Base = ViterbiDecoder_Core<constraint_length,code_rate,uint16_t,int16_t>;
     using decision_bits_t = typename Base::Decisions::format_t;
 private:
     // Calculate the minimum constraint length for vectorisation
