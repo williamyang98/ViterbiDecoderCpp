@@ -1,10 +1,13 @@
+/* Copyright (c) 2023 William Yang. All rights reserved.
+ * This work is licensed under the terms of the MIT license.  
+ * For a copy, see https://opensource.org/licenses/MIT.
+ */
 #pragma once
 
 #include <stdint.h>
 
-// Check if there are an even or odd number of 1s
-// Odd = 1, Even = 0
-// NOTE: This is just a helper and can be replaced if you have your own version
+/// @brief Utility class for getting the parity of a primitive's bits
+///        Odd bits = 1, Even bits = 0
 class ParityTable 
 {
 private:

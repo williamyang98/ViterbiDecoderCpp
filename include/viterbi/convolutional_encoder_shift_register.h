@@ -1,3 +1,7 @@
+/* Copyright (c) 2023 William Yang. All rights reserved.
+ * This work is licensed under the terms of the MIT license.  
+ * For a copy, see https://opensource.org/licenses/MIT.
+ */
 #pragma once
 #include "./convolutional_encoder.h"
 #include "./parity_table.h"
@@ -6,7 +10,7 @@
 #include <stddef.h>
 #include <assert.h>
 
-// Convolutional encoder that uses a shift register
+/// @brief Convolutional encoder that uses a shift register
 template <typename reg_t = uint16_t>
 class ConvolutionalEncoder_ShiftRegister: public ConvolutionalEncoder
 {

@@ -1,3 +1,10 @@
+/* Copyright 2004-2014, Phil Karn, KA9Q
+ * Phil Karn's github repository: https://github.com/ka9q/libfec 
+ * May be used under the terms of the GNU Lesser General Public License (LGPL)
+ * 
+ * Modified by author, William Yang
+ * 07/2023 - Refactored branch table into separate class
+ */
 #pragma once
 
 #include "./parity_table.h"

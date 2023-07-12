@@ -1,13 +1,17 @@
+/* Copyright (c) 2023 William Yang. All rights reserved.
+ * This work is licensed under the terms of the MIT license.  
+ * For a copy, see https://opensource.org/licenses/MIT.
+ */
 #pragma once
 #include "./convolutional_encoder.h"
 #include "./parity_table.h"
 #include <vector>
 #include <assert.h>
 
-// Convolutional encoder that uses a lookup table to process per byte
-// NOTE: For codes such as Cassini (K=15) which have large constraint lengths
-//       The generated lookup table is extremely large and would perform worse due to cache invalidation
-//       For these types of codes a lookup table based implementation is entirely inappropriate
+/// @brief Convolutional encoder that uses a lookup table to process per byte.
+///        For codes such as Cassini (K=15) which have large constraint lengths.
+///        The generated lookup table is extremely large and would perform worse due to cache invalidation.
+///        For these types of codes a lookup table based implementation is entirely inappropriate.
 class ConvolutionalEncoder_Lookup: public ConvolutionalEncoder
 {
 private:

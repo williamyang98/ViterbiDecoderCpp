@@ -1,8 +1,10 @@
-/* Generic Viterbi decoder,
- * Copyright Phil Karn, KA9Q,
- * Karn's original code can be found here: https://github.com/ka9q/libfec 
+/* Copyright 2004-2014, Phil Karn, KA9Q
+ * Phil Karn's github repository: https://github.com/ka9q/libfec 
  * May be used under the terms of the GNU Lesser General Public License (LGPL)
- * see http://www.gnu.org/copyleft/lgpl.html
+ * 
+ * Modified by author, William Yang
+ * 07/2023 - Generalised the viterbi decoding algorithm for all constraint lengths and code rates as scalar code.
+ *           This was done by inspecting the algorithm used in viterbi27_port.c, viterbi29_port.c, viterbi615_port.c.
  */
 #pragma once
 #include "./viterbi_decoder_core.h"

@@ -1,3 +1,7 @@
+/* Copyright (c) 2023 William Yang. All rights reserved.
+ * This work is licensed under the terms of the MIT license.  
+ * For a copy, see https://opensource.org/licenses/MIT.
+ */
 #pragma once
 #include <stddef.h>
 

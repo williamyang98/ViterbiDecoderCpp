@@ -1,8 +1,9 @@
-/* Generic Viterbi decoder,
- * Copyright Phil Karn, KA9Q,
- * Karn's original code can be found here: https://github.com/ka9q/libfec 
+/* Copyright 2004-2014, Phil Karn, KA9Q
+ * Phil Karn's github repository: https://github.com/ka9q/libfec 
  * May be used under the terms of the GNU Lesser General Public License (LGPL)
- * see http://www.gnu.org/copyleft/lgpl.html
+ * 
+ * Modified by author, William Yang
+ * 07/2023 - Generalised decoder using SSE4.1 instructions for 16bit types giving 8 way speedup.
  */
 #pragma once
 #include "../viterbi_decoder_core.h"
@@ -12,10 +13,9 @@
 #include <vector>
 #include <immintrin.h>
 
-// Vectorisation using SSE 
-//     16bit integers for errors, soft-decision values
-//     8 way vectorisation from 128bits/16bits 
-//     16bit decision type since 8 x 2 decisions bits per branch
+/// @brief Vectorisation using SSE4.1
+///        16bit integers for errors, soft-decision values.
+///        8 way vectorisation from 128bits/16bits.
 template <size_t constraint_length, size_t code_rate>
 class ViterbiDecoder_SSE_u16
 {
@@ -29,18 +29,15 @@ private:
     //
     // sizeof(metric)       = total_states   * sizeof(u16) = 2^(K  )
     // sizeof(branch_table) = total_states/2 * sizeof(s16) = 2^(K-1)
-    // sizeof(decision)     = total_states   / 8           = 2^(K-4)
     //
     // sizeof(__m128i)      = 16 = 2^4
     // stride(metric)       = sizeof(metric)       / sizeof(__m128i) = 2^(K-4)
     // stride(branch_table) = sizeof(branch_table) / sizeof(__m128i) = 2^(K-5)
-    // stride(decision)     = sizeof(decision)     / sizeof(u16)     = 2^(K-5)
     //
     // For stride(...) >= 1, then K >= 5
     static constexpr size_t SIMD_ALIGN = sizeof(__m128i);
     static constexpr size_t v_stride_metric = Base::Metrics::SIZE_IN_BYTES/SIMD_ALIGN;
     static constexpr size_t v_stride_branch_table = Base::BranchTable::SIZE_IN_BYTES/SIMD_ALIGN;
-    static constexpr size_t v_stride_decision_bits = Base::Decisions::SIZE_IN_BYTES/SIMD_ALIGN; 
     static constexpr size_t K_min = 5;
 public:
     static constexpr bool is_valid = Base::K >= K_min;

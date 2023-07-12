@@ -1,3 +1,7 @@
+/* Copyright (c) 2023 William Yang. All rights reserved.
+ * This work is licensed under the terms of the MIT license.  
+ * For a copy, see https://opensource.org/licenses/MIT.
+ */
 #pragma once
 
 #include <stdint.h>
@@ -17,9 +21,10 @@ public:
 
     virtual ~ConvolutionalEncoder() {};
 
+    /// @brief Resets internal registers of the encoder.
     virtual void reset() = 0;
 
-    // Output R bytes for each input byte
+    /// @brief Output R bytes for each input byte
     virtual void consume_byte(const uint8_t x, uint8_t* y) = 0;
 };
 

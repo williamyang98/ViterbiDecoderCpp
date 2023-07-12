@@ -1,8 +1,10 @@
-/* Generic Viterbi decoder,
- * Copyright Phil Karn, KA9Q,
- * Karn's original code can be found here: https://github.com/ka9q/libfec 
+/* Copyright 2004-2014, Phil Karn, KA9Q
+ * Phil Karn's github repository: https://github.com/ka9q/libfec 
  * May be used under the terms of the GNU Lesser General Public License (LGPL)
- * see http://www.gnu.org/copyleft/lgpl.html
+ * 
+ * Modified by author, William Yang
+ * 07/2023 - Consolidated core data structures used for decoding between various viterbi decoders into a single class
+ * 07/2023 - Refactored these data structured into cleared individual components
  */
 #pragma once
 #include "./viterbi_branch_table.h"
@@ -16,6 +18,7 @@
 #include <cstring>
 #include <assert.h>
 
+/// @brief Stores the error metrics for each state in a double buffer.
 template<size_t constraint_length, typename error_t>
 class ViterbiErrorMetrics 
 {
@@ -41,6 +44,8 @@ private:
     size_t index;
 };
 
+/// @brief Stores the leading bit of the previous state for each current state. 
+///        The bits are packed into a primitive type, where the lowest order bit corresponds to the first current state.
 template<size_t constraint_length, typename decision_bits_t>
 class ViterbiDecisionBits 
 {
@@ -70,9 +75,6 @@ public:
     format_t* operator[](const size_t index) {
         return &buffer[index].blocks[0];
     }
-    void reset() {
-        std::memset(buffer.data(), 0, buffer.size()*sizeof(blocks_t));
-    }
 private:
     struct blocks_t {
         format_t blocks[TOTAL_BLOCKS];
@@ -80,6 +82,8 @@ private:
     std::vector<blocks_t> buffer;
 };
 
+/// @brief A buffer that is used to shift in the current state of the viterbi decoder as it goes back through the trellis.
+///        Also has some additional logic to account for tail termination bits and add padding so we always have 8bits to form a byte. 
 template<size_t constraint_length, typename buffer_t = size_t>
 class ViterbiTracebackBuffer 
 {
@@ -148,8 +152,8 @@ private:
     buffer_t buffer;
 };
 
-// Core data structures for viterbi decoder
-// Traceback technique is the same for all types of viterbi decoders
+/// @brief Core data structures for viterbi decoder.
+///        Traceback technique is the same for all types of viterbi decoders.
 template <size_t constraint_length, size_t code_rate, typename error_t, typename soft_t>
 class ViterbiDecoder_Core
 {
