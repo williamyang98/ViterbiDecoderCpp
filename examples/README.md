@@ -4,7 +4,8 @@ Example programs which use the viterbi decoder library.
 ## Building programs
 1. <code>cd examples</code>
 2. <code>cmake . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release</code>
-3. <code>build/run_tests.exe</code>
+3. <code>ninja -C build</code>
+4. <code>build/run_tests.exe</code>
 
 ## Programs
 | Name | Description |
