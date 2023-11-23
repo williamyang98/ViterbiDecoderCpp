@@ -1,7 +1,7 @@
 # Introduction
-![x86-windows-test](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/x86-windows.yml/badge.svg)
-![x86-linux-test](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/x86-linux.yml/badge.svg)
-![arm-linux-test](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/arm-linux.yml/badge.svg)
+[![x86-windows](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/x86-windows.yml/badge.svg)](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/x86-windows.yml)
+[![x86-linux](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/x86-linux.yml/badge.svg)](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/x86-linux.yml)
+[![arm-linux](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/arm-linux.yml/badge.svg)](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/arm-linux.yml)
 
 This is a C++ port of Phil Karn's Viterbi decoder which can be found [here](https://github.com/ka9q/libfec).
 
