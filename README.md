@@ -69,10 +69,11 @@ Using the 16bit and 8bit based intrinsics implementations as a guide you can mak
     - Use hard decision values [-1,+1] of type int8_t
     - Due to the small maximum branch error of 2*R we can set the renormalisation threshold to be quite high. 
     - <code>renormalisation_threshold = UINT8_MAX - (2\*R\*10)</code>
-    - This gives similar levels of accuracy to 16bit soft decision decoding but with up to 2x performance due to the usage of 8bit values.
+    - This is less accurate compared to 16bit soft decision decoding but with up to 2x performance due to the usage of 8bit values.
+    - ![image](https://github.com/FiendChain/ViterbiDecoderCpp/assets/21079869/561262c5-c9fd-4245-8f4c-244fe21b69e2)
 - Depending on your usage requirements changes to the library are absolutely encouraged
 - Additionally check out Phil Karn's fine tuned assembly code [here](https://github.com/ka9q/libfec) for the best possible performance 
-- This code is not considered heavily tested and your mileage may vary. This was written for personal usage.
+- This code is not considered heavily tested and your mileage may vary. Refer to ```/examples``` for applications to benchmark performance and verify accuracy.
 
 # Useful alternatives
 - [Spiral project](https://www.spiral.net/software/viterbi.html) aims to auto-generate high performance code for any input parameters
