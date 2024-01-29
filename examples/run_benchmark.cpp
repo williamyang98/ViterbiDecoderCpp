@@ -20,8 +20,6 @@
 #include "utility/expected.hpp"
 #include "getopt/getopt.h"
 
-constexpr int NOISE_MAX = 100;
-
 struct TestResults {
     float update_symbols_per_ms = 0.0f;
     float reset_bits_per_ms = 0.0f;
@@ -36,8 +34,6 @@ struct TestResults {
 struct Arguments {
     size_t code_id;
     DecodeType decode_type;
-    uint64_t noise_level; 
-    bool is_soft_noise;
     size_t total_input_bytes;
     float total_duration_seconds;
 };
@@ -68,8 +64,6 @@ void usage() {
         "        soft_16: use u16 error type and soft decision boundaries\n"
         "        soft_8:  use u8  error type and soft decision boundaries\n"
         "        hard_8:  use u8  error type and hard decision boundaries\n"
-        "    [-n <noise level> (default: 0)]\n"
-        "    [-s <random seed> (default: Random)]\n"
         "    [-L <total input bytes> (default: 1024)]\n"
         "    [-T <total duration of benchmark> (default: 1.0) ]\n"
         "    [-l Lists all available codes]\n"
@@ -80,30 +74,20 @@ void usage() {
 tl::expected<Arguments, int> parse_args(int argc, char** argv) {
     struct {
         int code_id = 0;
-        int noise_level = 0;
-        int random_seed = 0;
         int total_input_bytes = 1024;
         float total_duration_seconds = 1.0;
-        bool is_randomise_seed = true;
         bool is_show_list = false;
         const char* decode_type_str = NULL;
     } args;
 
 	int opt; 
-    while ((opt = getopt_custom(argc, argv, "c:d:n:s:L:T:lh")) != -1) {
+    while ((opt = getopt_custom(argc, argv, "c:d:L:T:lh")) != -1) {
         switch (opt) {
         case 'c':
             args.code_id = atoi(optarg);
             break;
         case 'd':
             args.decode_type_str = optarg;
-            break;
-        case 'n':
-            args.noise_level = atoi(optarg);
-            break;
-        case 's':
-            args.is_randomise_seed = false;
-            args.random_seed = atoi(optarg);
             break;
         case 'L':
             args.total_input_bytes = atoi(optarg);
@@ -167,50 +151,13 @@ tl::expected<Arguments, int> parse_args(int argc, char** argv) {
         return tl::unexpected(1);
     }
 
-    if (args.noise_level < 0) {
-        fprintf(stderr, "Noise level must be positive\n");
-        return tl::unexpected(1);
-    }
-
-    // NOTE: Hard decision decoding has hard upper limit on noise level
-    if (decode_type == DecodeType::HARD8) {
-        if ((args.noise_level < 0) || (args.noise_level > NOISE_MAX)) {
-            fprintf(
-                stderr,
-                "Hard decision noise level must be between %d...%d\n",
-                0, NOISE_MAX
-            );
-            return tl::unexpected(1);
-        }
-    }
-
     if (args.total_input_bytes < 0) {
         fprintf(stderr, "Total input bytes must be positive\n");
         return tl::unexpected(1);
     }
 
-    // Generate seed
-    if (args.is_randomise_seed) {
-        const auto dt_now = std::chrono::system_clock::now().time_since_epoch();
-        const auto us_now = std::chrono::duration_cast<std::chrono::microseconds>(dt_now).count();
-        std::srand((unsigned int)us_now);
-        args.random_seed = std::rand();
-        printf("Using random_seed=%d\n", args.random_seed);
-    }
-    std::srand((unsigned int)args.random_seed);
-
-    bool is_soft_noise = true;
-    switch (decode_type) {
-    case DecodeType::SOFT16: is_soft_noise = true; break;
-    case DecodeType::SOFT8: is_soft_noise = true; break;
-    case DecodeType::HARD8: is_soft_noise = false; break;
-    default: break;
-    }
-
     Arguments out;
     out.code_id = size_t(args.code_id);
-    out.is_soft_noise = is_soft_noise;
-    out.noise_level = uint64_t(args.noise_level);
     out.decode_type = decode_type;
     out.total_input_bytes = size_t(args.total_input_bytes);
     out.total_duration_seconds = args.total_duration_seconds;
@@ -277,16 +224,6 @@ void init_test(
         output_symbols.data(), output_symbols.size(),
         config.soft_decision_high, config.soft_decision_low
     );
-
-    // generate appropriate noise signal
-    if (args.noise_level > 0) {
-        if (args.is_soft_noise) {
-            add_noise(output_symbols.data(), output_symbols.size(), args.noise_level);
-            clamp_vector(output_symbols.data(), output_symbols.size(), config.soft_decision_low, config.soft_decision_high);
-        } else {
-            add_binary_noise(output_symbols.data(), output_symbols.size(), args.noise_level, uint64_t(NOISE_MAX));
-        }
-    }
 
     // compare results
     auto print_independent = [](const TestResults src) {

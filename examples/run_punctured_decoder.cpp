@@ -74,13 +74,8 @@ constexpr size_t PI_total_bits = 32;
 constexpr size_t PI_16_total_count = 21;
 constexpr size_t PI_15_total_count = 3;
 
-constexpr int NOISE_MAX = 100;
-
 template <class factory_t, typename soft_t, typename error_t>
-void run_test(
-    const Decoder_Config<soft_t,error_t>& config,
-    const uint64_t noise_level, const bool is_soft_noise
-);
+void run_test(const Decoder_Config<soft_t,error_t>& config);
 
 template <typename soft_t>
 size_t run_punctured_encoder(
@@ -99,60 +94,14 @@ uint64_t run_punctured_decoder(
 void usage() {
     fprintf(stderr, 
         "run_punctured_decoder, Runs viterbi decoder with puncturing on DAB radio code\n\n"
-        "    [-n <normalised noise level> (default: 0)]\n"
-        "        A value between 0 and 100\n"
-        "        0   = No noise"
-        "        100 = Maximum noise"
-        "    [-s <random seed> (default: Random)]\n"
         "    [-h Show usage]\n"
     );
 }
 
-uint64_t get_normalised_noise_level(DecodeType decode_type, float noise_level, float soft_decision_high) {
-    switch (decode_type) {
-        case DecodeType::SOFT16: {
-            const float soft_noise_multiplier = 5.5f;
-            const uint64_t soft_noise_level = uint64_t(noise_level * soft_decision_high * soft_noise_multiplier);
-            return soft_noise_level;
-        }
-        case DecodeType::SOFT8: {
-            const float soft_noise_multiplier = 5.8f;
-            const uint64_t soft_noise_level = uint64_t(noise_level * soft_decision_high * soft_noise_multiplier);
-            return soft_noise_level;
-        }
-        case DecodeType::HARD8: {
-            const uint64_t hard_noise_level = uint64_t(noise_level * 100.0f);
-            return hard_noise_level;
-        }
-        default:
-            return 0;
-    }
-}
-
-bool get_is_soft_noise(DecodeType decode_type) {
-    switch (decode_type) {
-    case DecodeType::SOFT16: return true;
-    case DecodeType::SOFT8:  return true;
-    case DecodeType::HARD8:  return false;
-    default:                 return true;
-    }
-}
-
 int main(int argc, char** argv) {
-    int noise_level = 0;
-    int random_seed = 0;
-    bool is_randomise_seed = true;
-
-	int opt; 
-    while ((opt = getopt_custom(argc, argv, "n:s:h")) != -1) {
+    int opt; 
+    while ((opt = getopt_custom(argc, argv, "h")) != -1) {
         switch (opt) {
-        case 'n':
-            noise_level = atoi(optarg);
-            break;
-        case 's':
-            is_randomise_seed = false;
-            random_seed = atoi(optarg);
-            break;
         case 'h':
         default:
             usage();
@@ -160,47 +109,20 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Other arguments
-    if ((noise_level < 0) || (noise_level > 100)) {
-        fprintf(
-            stderr,
-            "Noise level must be between 0...100\n"
-        );
-        return 1;
-    }
-
-
-    // Generate seed
-    if (is_randomise_seed) {
-        const auto dt_now = std::chrono::system_clock::now().time_since_epoch();
-        const auto us_now = std::chrono::duration_cast<std::chrono::microseconds>(dt_now).count();
-        std::srand((unsigned int)us_now);
-        random_seed = std::rand();
-        printf("Using random_seed=%d\n", random_seed);
-    }
-    std::srand((unsigned int)random_seed);
-
-    const float normalised_noise_level = float(noise_level) / 100.0f;
     for (const auto& decode_type: Decode_Type_List) {
         SELECT_DECODE_TYPE(decode_type, {
             auto get_config = it0;
             using factory_t = it1;
-
             auto config = get_config(R);
-            const uint64_t norm_noise = get_normalised_noise_level(decode_type, normalised_noise_level, float(config.soft_decision_high));
-            const bool is_soft_noise = get_is_soft_noise(decode_type);
             printf(">>> Running %s decode type\n", get_decode_type_str(decode_type));
-            run_test<factory_t>(config, norm_noise, is_soft_noise);
+            run_test<factory_t>(config);
         });
     };
     return 0;
 }
 
 template <class factory_t, typename soft_t, typename error_t>
-void run_test(
-    const Decoder_Config<soft_t,error_t>& config,
-    const uint64_t noise_level, const bool is_soft_noise
-) {
+void run_test(const Decoder_Config<soft_t,error_t>& config) {
     // Generate data
     const size_t total_data_bits = PI_total_bits*PI_16_total_count 
                                  + PI_total_bits*PI_15_total_count;
@@ -223,16 +145,6 @@ void run_test(
         output_symbols.data(), output_symbols.size(),
         tx_input_bytes.data(), tx_input_bytes.size()
     );
-
-    // Add noise
-    if (noise_level > 0) {
-        if (is_soft_noise) {
-            add_noise(output_symbols.data(), output_symbols.size(), noise_level);
-            clamp_vector(output_symbols.data(), output_symbols.size(), config.soft_decision_low, config.soft_decision_high);
-        } else {
-            add_binary_noise(output_symbols.data(), output_symbols.size(), noise_level, uint64_t(NOISE_MAX));
-        }
-    }
 
     // decoding
     auto branch_table = ViterbiBranchTable<K,R,soft_t>(G, config.soft_decision_high, config.soft_decision_low);
@@ -269,8 +181,8 @@ size_t run_punctured_encoder(
 ) {
     size_t total_output_symbols = 0u;
     {
-        auto output_symbols_buf = span_t<soft_t>(output_symbols, max_output_symbols);
-        auto input_bytes_buf = span_t<const uint8_t>(input_bytes, total_input_bytes);
+        auto output_symbols_buf = tcb::span<soft_t>(output_symbols, max_output_symbols);
+        auto input_bytes_buf = tcb::span<const uint8_t>(input_bytes, total_input_bytes);
         for (size_t i = 0u; i < PI_16_total_count; i++) {
             const size_t total_bytes = PI_total_bits/8u;
             const size_t N = encode_punctured_data(
@@ -280,8 +192,8 @@ size_t run_punctured_encoder(
                 PI_16, PI_total_bits,
                 soft_decision_high, soft_decision_low
             );
-            output_symbols_buf = output_symbols_buf.front(N);
-            input_bytes_buf = input_bytes_buf.front(total_bytes);
+            output_symbols_buf = output_symbols_buf.first(N);
+            input_bytes_buf = input_bytes_buf.first(total_bytes);
             total_output_symbols += N;
         }
 
@@ -294,8 +206,8 @@ size_t run_punctured_encoder(
                 PI_15, PI_total_bits,
                 soft_decision_high, soft_decision_low
             );
-            output_symbols_buf = output_symbols_buf.front(N);
-            input_bytes_buf = input_bytes_buf.front(total_bytes);
+            output_symbols_buf = output_symbols_buf.first(N);
+            input_bytes_buf = input_bytes_buf.first(total_bytes);
             total_output_symbols += N;
         }
 
@@ -321,7 +233,7 @@ uint64_t run_punctured_decoder(
     const soft_t soft_decision_unpunctured,
     soft_t* output_symbols, const size_t total_output_symbols
 ) {
-    auto output_symbols_buf = span_t(output_symbols, total_output_symbols);
+    auto output_symbols_buf = tcb::span(output_symbols, total_output_symbols);
 
     PuncturedDecodeResult res;
     vitdec.reset();
@@ -333,7 +245,7 @@ uint64_t run_punctured_decoder(
         PI_16, PI_total_bits, 
         PI_total_bits*R*PI_16_total_count);
     accumulated_error += res.accumulated_error;
-    output_symbols_buf = output_symbols_buf.front(res.index_punctured_symbol);
+    output_symbols_buf = output_symbols_buf.first(res.index_punctured_symbol);
 
     res = decode_punctured_symbols<decoder_t>(
         vitdec, soft_decision_unpunctured,
@@ -341,7 +253,7 @@ uint64_t run_punctured_decoder(
         PI_15, PI_total_bits, 
         PI_total_bits*R*PI_15_total_count);
     accumulated_error += res.accumulated_error;
-    output_symbols_buf = output_symbols_buf.front(res.index_punctured_symbol);
+    output_symbols_buf = output_symbols_buf.first(res.index_punctured_symbol);
 
     res = decode_punctured_symbols<decoder_t>(
         vitdec, soft_decision_unpunctured,
@@ -349,7 +261,7 @@ uint64_t run_punctured_decoder(
         PI_X, 24, 
         24);
     accumulated_error += res.accumulated_error;
-    output_symbols_buf = output_symbols_buf.front(res.index_punctured_symbol);
+    output_symbols_buf = output_symbols_buf.first(res.index_punctured_symbol);
 
     assert(output_symbols_buf.size() == 0u);
     return accumulated_error;

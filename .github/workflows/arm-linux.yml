@@ -9,31 +9,23 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
     - uses: actions/checkout@v3
 
     - name: Install packages
-      shell: bash
-      run: |
-        cd ${{github.workspace}}/examples
-        ./toolchains/arm_install_packages.sh
-      
+      working-directory: ./examples
+      run: sudo apt-get update && ./toolchains/arm_install_packages.sh
+
     - name: Configure CMake
-      shell: bash
-      run: |
-        cd ${{github.workspace}}/examples
-        ./toolchains/arm_build.sh
+      working-directory: ./examples
+      run: ./toolchains/arm_build.sh
 
     - name: Build
-      shell: bash
-      run: |
-        cd ${{github.workspace}}/examples
-        ninja -C build-arm
-    
+      working-directory: ./examples
+      run: ninja -C build-arm
+ 
     - name: Run test 
-      shell: bash
-      run: |
-        cd ${{github.workspace}}/examples
-        ./toolchains/arm_run.sh ./build-arm/run_tests
+      working-directory: ./examples
+      run: ./toolchains/arm_run.sh ./build-arm/run_tests

@@ -19,8 +19,6 @@
 #include "utility/console_colours.h"
 #include "getopt/getopt.h"
 
-constexpr int NOISE_MAX = 100;
-
 struct GlobalTestResults {
     size_t total_pass = 0;
     size_t total_tests = 0;
@@ -75,7 +73,6 @@ void run_tests(
     Decoder_Config<soft_t,error_t>(*config_factory)(const size_t),
     GlobalTestResults& global_results,
     const DecodeType decode_type,
-    const uint64_t noise_level, const bool is_soft_noise,
     const size_t total_input_bytes 
 );
 
@@ -83,8 +80,6 @@ template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t
 TestResult run_test(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
     ConvolutionalEncoder* enc, 
-    const uint64_t noise_level,
-    const bool is_soft_noise,
     const size_t total_input_bytes,
     const soft_t soft_decision_high,
     const soft_t soft_decision_low
@@ -121,7 +116,7 @@ void usage() {
 }
 
 int main(int argc, char** argv) {
-	int opt; 
+    int opt; 
     while ((opt = getopt_custom(argc, argv, "h")) != -1) {
         switch (opt) {
         case 'h':
@@ -131,8 +126,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::srand(0);
-    const uint64_t noise_level = 0;
     const size_t total_input_bytes = 64;
     GlobalTestResults global_results;
 
@@ -141,7 +134,7 @@ int main(int argc, char** argv) {
         SELECT_DECODE_TYPE(decode_type, {
             auto config = it0;
             using factory_t = it1;
-            select_codes<factory_t>(config, global_results, decode_type, noise_level, true, total_input_bytes);
+            select_codes<factory_t>(config, global_results, decode_type, total_input_bytes);
         });
     }
 
@@ -163,7 +156,6 @@ void run_tests(
     Decoder_Config<soft_t,error_t>(*config_factory)(const size_t),
     GlobalTestResults& global_results,
     const DecodeType decode_type,
-    const uint64_t noise_level, const bool is_soft_noise,
     const size_t total_input_bytes 
 ) {
     const Decoder_Config<soft_t, error_t> config = config_factory(code.R);
@@ -184,7 +176,6 @@ void run_tests(
                 } else {
                     const auto res = run_test<decoder_t>(
                         vitdec, &enc, 
-                        noise_level, is_soft_noise, 
                         total_input_bytes, 
                         config.soft_decision_high, config.soft_decision_low
                     );
@@ -203,8 +194,6 @@ template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t
 TestResult run_test(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
     ConvolutionalEncoder* enc, 
-    const uint64_t noise_level,
-    const bool is_soft_noise,
     const size_t total_input_bytes,
     const soft_t soft_decision_high,
     const soft_t soft_decision_low
@@ -235,16 +224,6 @@ TestResult run_test(
         output_symbols.data(), output_symbols.size(),
         soft_decision_high, soft_decision_low
     );
-
-    // generate appropriate noise signal
-    if (noise_level > 0) {
-        if (is_soft_noise) {
-            add_noise(output_symbols.data(), output_symbols.size(), noise_level);
-            clamp_vector(output_symbols.data(), output_symbols.size(), soft_decision_low, soft_decision_high);
-        } else {
-            add_binary_noise(output_symbols.data(), output_symbols.size(), noise_level, uint64_t(NOISE_MAX));
-        }
-    }
 
     const size_t total_output_symbols = output_symbols.size();
     vitdec.reset();
