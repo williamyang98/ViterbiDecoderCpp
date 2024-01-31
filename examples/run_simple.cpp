@@ -86,6 +86,10 @@ int main(int argc, char** argv) {
     const float bit_error_rate = (float)total_errors / (float)total_input_bits * 100.0f;
     printf("bit_error_rate=%.2f%%\n", bit_error_rate);
     printf("%zu/%zu incorrect bits\n", total_errors, total_input_bits);
-
+ 
+    if (total_errors > 0) {
+        printf("ERROR: Simple example had decoding errors\n");
+        return 1;
+    }
     return 0;
 }

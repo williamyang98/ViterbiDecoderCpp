@@ -27,6 +27,14 @@ jobs:
       working-directory: ./examples
       run: ninja -C build-arm
  
-    - name: Run test 
+    - name: Run simple example
+      working-directory: ./examples
+      run: ./toolchains/arm_run.sh ./build-arm/run_simple
+
+    - name: Run punctured decoder example 
+      working-directory: ./examples
+      run: ./toolchains/arm_run.sh ./build-arm/run_punctured_decoder
+
+    - name: Run tests
       working-directory: ./examples
       run: ./toolchains/arm_run.sh ./build-arm/run_tests

@@ -29,6 +29,14 @@ jobs:
       working-directory: ./examples
       run: ninja -C ./build
 
-    - name: Run test 
+    - name: Run simple example
+      working-directory: ./examples
+      run: ./build/run_simple
+
+    - name: Run punctured decoder example 
+      working-directory: ./examples
+      run: ./build/run_punctured_decoder
+
+    - name: Run tests
       working-directory: ./examples
       run: ./build/run_tests

@@ -17,11 +17,20 @@ jobs:
 
     - name: Configure CMake
       working-directory: ./examples
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -A"x64" -G"Visual Studio 17 2022"
+      run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
     - name: Build
       working-directory: ./examples
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+      run: ninja -C build
 
-    - name: Run test 
-      run: ${{github.workspace}}/build/Release/run_tests.exe
+    - name: Run simple example
+      working-directory: ./examples
+      run: ./build/run_simple
+
+    - name: Run punctured decoder example 
+      working-directory: ./examples
+      run: ./build/run_punctured_decoder
+
+    - name: Run tests
+      working-directory: ./examples
+      run: ./build/run_tests
