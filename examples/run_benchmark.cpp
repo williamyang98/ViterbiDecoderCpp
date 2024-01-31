@@ -33,6 +33,7 @@ struct TestResult {
 
 struct Arguments {
     float total_duration_seconds;
+    size_t minimum_input_bytes;
     CLI_Filters filters;
 };
 
@@ -69,7 +70,8 @@ void usage() {
     fprintf(stderr, 
         " run_benchmark, Runs benchmark on viterbi decoding\n\n"
         "    [-t <total_threads> (default: 1)]\n"
-        "    [-T <total duration of benchmark> (default: 1.0)]\n"
+        "    [-T <total_duration_of_benchmark_seconds> (default: 1.0)]\n"
+        "    [-M <minimum_input_bytes> (default: 128)]\n"
     );
     cli_filters_print_usage();
     fprintf(stderr,
@@ -86,6 +88,7 @@ static FILE* fp_out = stdout;
 int main(int argc, char** argv) {
     int total_threads = 1;
     float total_duration_seconds = 1.0;
+    int minimum_input_bytes = 128;
     CLI_Filters filters;
     while (true) {
         const int opt = getopt_custom(argc, argv, "t:T:h" CLI_FILTERS_GETOPT_STRING);
@@ -97,6 +100,9 @@ int main(int argc, char** argv) {
             case 'T':
                 total_duration_seconds = float(atof(optarg));
                 break;
+            case 'M':
+                minimum_input_bytes = atoi(optarg);
+                break;
             case 'h':
                 usage();
                 return 0;
@@ -106,7 +112,6 @@ int main(int argc, char** argv) {
                 if (res == R::ERROR_PARSE) return 1;
                 if (res == R::SUCCESS_EXIT) return 0;
                 if (res == R::NONE) {
-                    fprintf(stderr, "Invalid flag -%c\n", char(opt));
                     usage();
                     return 1;
                 }
@@ -125,8 +130,14 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if (minimum_input_bytes <= 0) {
+        fprintf(stderr, "Minimum input bytes must be > 0, got %d\n", minimum_input_bytes);
+        return 1;
+    }
+
     Arguments args;
     args.total_duration_seconds = total_duration_seconds;
+    args.minimum_input_bytes = size_t(minimum_input_bytes);
     args.filters = filters;
 
     thread_pool = std::make_unique<ThreadPool>(size_t(total_threads));
@@ -139,7 +150,7 @@ int main(int argc, char** argv) {
     });
 
     const int total_tasks = thread_pool->get_total_tasks();
-    fprintf(stderr, "Using %d threads\n", total_threads);
+    fprintf(stderr, "Using %zu threads\n", thread_pool->get_total_threads());
     fprintf(stderr, "Total tasks in thread pool: %d\n", total_tasks);
     if (total_tasks > 0) {
         fprintf(fp_out, "[\n");
@@ -182,7 +193,8 @@ void init_test(
 
                     // Scale number of input bytes based on time complexity
                     const size_t runtime_scale = R * (1<<(K-1));
-                    const size_t total_input_bytes = size_t(std::ceil(64000.0f/std::sqrt(runtime_scale)));
+                    size_t total_input_bytes = size_t(std::ceil(64000.0f/std::sqrt(runtime_scale)));
+                    if (total_input_bytes < args.minimum_input_bytes) total_input_bytes = args.minimum_input_bytes;
                     const size_t total_input_bits = total_input_bytes*8u;
                     // Generate test data
                     std::vector<uint8_t> tx_input_bytes;

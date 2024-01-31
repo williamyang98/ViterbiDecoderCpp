@@ -7,6 +7,7 @@
 #include <vector>
 #include <map>
 #include <random>
+#include <optional>
 
 #include "viterbi/convolutional_encoder.h"
 #include "viterbi/convolutional_encoder_shift_register.h"
@@ -16,9 +17,11 @@
 #include "helpers/simd_type.h"
 #include "helpers/decode_type.h"
 #include "helpers/test_helpers.h"
+#include "helpers/cli_filters.h"
 #include "getopt/getopt.h"
 #include "utility/span.h"
 #include "utility/thread_pool.h"
+#include "utility/timer.h"
 
 struct TestRange {
     float EbNo_dB_initial;
@@ -26,11 +29,14 @@ struct TestRange {
     size_t maximum_generated_bits;
 };
 
-struct TestConfig {
+struct Arguments {
     size_t maximum_error_bits;
     size_t traceback_length_bytes;
     size_t maximum_data_points;
     uint64_t random_seed;
+    float maximum_generated_bits_scale;
+    std::optional<float> timeout_seconds;
+    CLI_Filters filters;
 };
 
 struct TestResults {
@@ -43,20 +49,21 @@ struct TestResults {
 TestRange get_test_range(const size_t K, const size_t R);
 
 template <size_t K, size_t R, typename code_t>
-void select_decode_type(const Code<K,R,code_t>& code, const TestConfig& test_config);
+void select_decode_type(const Code<K,R,code_t>& code, const size_t code_id, const Arguments& args);
 
 template <class factory_t, size_t K, size_t R, typename code_t, typename soft_t, typename error_t>
 void run_tests(
     const Code<K,R,code_t>& code, const DecodeType decode_type,
     Decoder_Config<soft_t,error_t>(*config_factory)(const size_t),
-    const TestConfig& test_config
+    const Arguments& args
 );
 
-template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t>
+template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t, typename code_t>
 TestResults run_test(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, ConvolutionalEncoder* enc, 
     const soft_t soft_decision_high, const soft_t soft_decision_low,
-    const TestConfig& test_config, const TestRange& test_range, const size_t thread_id
+    const Arguments& args, const TestRange& test_range, 
+    const Code<K,R,code_t>& code, const DecodeType decode_type, const SIMD_Type simd_type, const size_t thread_id
 );
 
 template <size_t K, size_t R, typename code_t>
@@ -73,44 +80,71 @@ void usage() {
         "    [-t <total_threads> (default: 0)]\n"
         "    [-L <traceback_length> (default: 512)]\n"
         "    [-n <maximum_error_bits> (default: 1024)]\n"
-        "    [-d <maximum_data_points> (default: 30)]\n"
-        "    [-s <random_seed> (default: 0) ]\n"
+        "    [-D <maximum_data_points> (default: 30)]\n"
+        "    [-S <random_seed> (default: 0) ]\n"
+        "    [-k <maximum_generated_bits_scale> (default: 1.0)]\n"
+        "    [-T <timeout_seconds> (default: None)]\n"
+    );
+    cli_filters_print_usage();
+    fprintf(stderr,
         "    [-h Show usage]\n"
     );
 }
 
 static std::unique_ptr<ThreadPool> thread_pool = nullptr;
+static bool g_is_first_result = true;
 static std::mutex mutex_stderr;
-static std::mutex mutex_stdout;
+static std::mutex mutex_fp_out;
+static FILE* fp_out = stdout;
 
 int main(int argc, char** argv) {
     int total_threads = 0;
     int traceback_length = 512;
     int maximum_error_bits = 1024;
     int maximum_data_points = 30;
+    float maximum_generated_bits_scale = 1.0f;
+    std::optional<float> timeout_seconds = std::nullopt;
     int random_seed = 0;
-    int opt; 
-    while ((opt = getopt_custom(argc, argv, "t:L:n:d:s:h")) != -1) {
+    CLI_Filters filters;
+    while (true) {
+        const int opt = getopt_custom(argc, argv, "t:L:n:D:S:k:T:h" CLI_FILTERS_GETOPT_STRING);
+        if (opt == -1) break;
         switch (opt) {
-        case 't':
-            total_threads = atoi(optarg);
-            break;
-        case 'L':
-            traceback_length = atoi(optarg);
-            break;
-        case 'n':
-            maximum_error_bits = atoi(optarg);
-            break;
-        case 'd':
-            maximum_data_points = atoi(optarg);
-            break;
-        case 's':
-            random_seed = atoi(optarg);
-            break;
-        case 'h':
-        default:
-            usage();
-            return 1;
+            case 't':
+                total_threads = atoi(optarg);
+                break;
+            case 'L':
+                traceback_length = atoi(optarg);
+                break;
+            case 'n':
+                maximum_error_bits = atoi(optarg);
+                break;
+            case 'D':
+                maximum_data_points = atoi(optarg);
+                break;
+            case 'S':
+                random_seed = atoi(optarg);
+                break;
+            case 'k':
+                maximum_generated_bits_scale = atof(optarg);
+                break;
+            case 'T':
+                timeout_seconds = std::optional(atof(optarg));
+                break;
+            case 'h':
+                usage();
+                return 0;
+            default: {
+                using R = CLI_Filters_Getopt_Result;
+                const auto res = cli_filters_parse_getopt(filters, opt, optarg, argv[0]);
+                if (res == R::ERROR_PARSE) return 1;
+                if (res == R::SUCCESS_EXIT) return 0;
+                if (res == R::NONE) {
+                    usage();
+                    return 1;
+                }
+                break;
+            }
         }
     }
 
@@ -138,31 +172,48 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Random seed must be >= 0, got %d\n", random_seed);
         return 1;
     }
+
+    if (maximum_generated_bits_scale <= 0.0f) {
+        fprintf(stderr, "Maximum generated bits scale must be > 0, got %f\n", maximum_generated_bits_scale);
+        return 1;
+    }
+
+    if (timeout_seconds.has_value() && timeout_seconds.value() <= 0.0f) {
+        fprintf(stderr, "Timeout must be > 0, got %f\n", timeout_seconds.value());
+        return 1;
+    }
  
-    TestConfig test_config;
-    test_config.traceback_length_bytes = size_t(traceback_length);
-    test_config.maximum_error_bits = size_t(maximum_error_bits);
-    test_config.maximum_data_points = size_t(maximum_data_points);
-    test_config.random_seed = 0;
+    Arguments args;
+    args.traceback_length_bytes = size_t(traceback_length);
+    args.maximum_error_bits = size_t(maximum_error_bits);
+    args.maximum_data_points = size_t(maximum_data_points);
+    args.maximum_generated_bits_scale = maximum_generated_bits_scale;
+    args.random_seed = 0;
+    args.timeout_seconds = timeout_seconds;
+    args.filters = filters;
     if (random_seed == 0) {
-        test_config.random_seed = uint64_t(time(NULL));
+        args.random_seed = uint64_t(time(NULL));
     } else {
-        test_config.random_seed = uint64_t(random_seed);
+        args.random_seed = uint64_t(random_seed);
     }
 
     thread_pool = std::make_unique<ThreadPool>(size_t(total_threads));
  
-    fprintf(stdout, "[");
+    size_t code_id = 0;
     FOR_COMMON_CODES({
         const auto& code = it;
-        select_decode_type(code, test_config);
+        select_decode_type(code, code_id, args);
+        code_id++;
     });
  
     const int total_tasks = thread_pool->get_total_tasks();
+    fprintf(stderr, "Using %zu threads\n", thread_pool->get_total_threads());
     fprintf(stderr, "Total tasks in thread pool: %d\n", total_tasks);
-    thread_pool->wait_all();
-    fprintf(stdout, "]\n");
-
+    if (total_tasks > 0) {
+        fprintf(fp_out, "[\n");
+        thread_pool->wait_all();
+        fprintf(fp_out, "]\n");
+    }
     return 0;
 }
 
@@ -173,12 +224,13 @@ TestRange get_test_range(const size_t K, const size_t R) {
     // runtime ∝ R * 2^(K-1)
     const size_t runtime_scale = R * (1<<(K-1));
     const size_t error_correcting_capability = K*R;
-    constexpr size_t base_total_bits = size_t(1e9); 
+    size_t base_total_bits = size_t(1e9); 
     TestRange range;
     range.EbNo_dB_initial = -std::ceil(std::pow(float(error_correcting_capability), 0.8f));
     // TODO: Figure out a better way to calculate this that generalises
     if (K >= 9) {
         range.EbNo_dB_initial = -17.0f;
+        base_total_bits = size_t(1e10);
     }
     // Measure the sharp cutoff of code with high error correction ability
     range.EbNo_dB_step = (error_correcting_capability > 20) ? 0.5f : 1.0f;
@@ -187,12 +239,14 @@ TestRange get_test_range(const size_t K, const size_t R) {
 }
 
 template <size_t K, size_t R, typename code_t>
-void select_decode_type(const Code<K,R,code_t>& code, const TestConfig& test_config) {
+void select_decode_type(const Code<K,R,code_t>& code, const size_t code_id, const Arguments& args) {
+    if (!args.filters.allow_code_index(code_id)) return;
     for (const auto& decode_type: Decode_Type_List) {
+        if (!args.filters.allow_decode_type(decode_type)) continue;
         SELECT_DECODE_TYPE(decode_type, {
             auto config_factory = it0;
             using factory_t = it1;
-            run_tests<factory_t>(code, decode_type, config_factory, test_config);
+            run_tests<factory_t>(code, decode_type, config_factory, args);
         });
     }
 
@@ -202,9 +256,10 @@ template <class factory_t, size_t K, size_t R, typename code_t, typename soft_t,
 void run_tests(
     const Code<K,R,code_t>& code, const DecodeType decode_type,
     Decoder_Config<soft_t,error_t>(*config_factory)(const size_t),
-    const TestConfig& test_config
+    const Arguments& args
 ) {
     for (const auto& simd_type: SIMD_Type_List) {
+        if (!args.filters.allow_simd_type(simd_type)) continue;
         SELECT_FACTORY_ITEM(factory_t, simd_type, K, R, {
             using decoder_t = it;
             if constexpr(decoder_t::is_valid) {
@@ -215,28 +270,30 @@ void run_tests(
                     auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(branch_table, config.decoder_config);
                     const auto test_range = get_test_range(K,R);
                     const auto test_results = run_test<decoder_t>(
-                            vitdec, &enc, 
-                            config.soft_decision_high, config.soft_decision_low,
-                            test_config, test_range, thread_id
-                            ); 
-                    auto lock_stdout = std::scoped_lock(mutex_stdout);
-                    print_test_results(stdout, code, decode_type, simd_type, test_results);
+                        vitdec, &enc, 
+                        config.soft_decision_high, config.soft_decision_low,
+                        args, test_range, 
+                        code, decode_type, simd_type, thread_id
+                    ); 
+                    auto lock_fp_out = std::scoped_lock(mutex_fp_out);
+                    print_test_results(fp_out, code, decode_type, simd_type, test_results);
                 });
             } 
         });
     }
 }
 
-template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t>
+template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t, typename code_t>
 TestResults run_test(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, ConvolutionalEncoder* enc, 
     const soft_t soft_decision_high, const soft_t soft_decision_low,
-    const TestConfig& test_config, const TestRange& test_range, const size_t thread_id
+    const Arguments& args, const TestRange& test_range, 
+    const Code<K,R,code_t>& code, const DecodeType decode_type, const SIMD_Type simd_type, const size_t thread_id
 ) {
     assert(vitdec.K == enc->K);
     assert(vitdec.R == enc->R);
     // determine size of buffers per block
-    const size_t total_block_bytes = test_config.traceback_length_bytes;
+    const size_t total_block_bytes = args.traceback_length_bytes;
     const size_t total_block_bits = total_block_bytes*8u;
     size_t total_block_symbols = 0;
     {
@@ -259,10 +316,11 @@ TestResults run_test(
     // determine offset and scale for normalised symbols
     const float symbol_norm_mean = (float(soft_decision_high) + float(soft_decision_low)) / 2.0f;
     const float symbol_norm_magnitude = (float(soft_decision_high) - float(soft_decision_low)) / 2.0f;
-    
+ 
     TestResults results;
+    const size_t max_generated_bits = size_t(std::ceil(args.maximum_generated_bits_scale*float(test_range.maximum_generated_bits)));
     // Move seed here to avoid infinite loop for high EbNo_dB
-    std::mt19937 rand_engine{(unsigned int)(test_config.random_seed)};
+    std::mt19937 rand_engine{(unsigned int)(args.random_seed)};
     for (size_t curr_point = 0; ; curr_point++) {
         const float EbNo_dB = test_range.EbNo_dB_initial + float(curr_point)*test_range.EbNo_dB_step;
         const float snr_dB = EbNo_dB + 10.0f*std::log10(float(R));
@@ -276,8 +334,10 @@ TestResults run_test(
         const float noisy_symbol_combined_norm = symbol_norm_magnitude * noisy_signal_norm;
 
         // measure performance
+        Timer total_time;
         size_t total_bit_errors = 0;
         size_t total_bits = 0;
+        bool is_timeout = false;
         while (true) {
             // generate data
             for (size_t i = 0; i < total_block_bytes; i++) {
@@ -313,8 +373,15 @@ TestResults run_test(
             const size_t block_bit_errors = get_total_bit_errors(tx_block_bytes.data(), rx_block_bytes.data(), total_block_bytes);
             total_bit_errors += block_bit_errors;
             total_bits += total_block_bits;
-            if (total_bits >= test_range.maximum_generated_bits) break;
-            if (total_bit_errors >= test_config.maximum_error_bits) break;
+            if (total_bits >= max_generated_bits) break;
+            if (total_bit_errors >= args.maximum_error_bits) break;
+            if (args.timeout_seconds.has_value()) {
+                const float time_elapsed_seconds = float(double(total_time.get_delta()) * 1e-9); 
+                if (time_elapsed_seconds > args.timeout_seconds.value()) {
+                    is_timeout = true;
+                    break;
+                }
+            }
         }
         const float bit_error_rate = float(total_bit_errors) / float(total_bits);
 
@@ -324,9 +391,15 @@ TestResults run_test(
         results.total_bits.push_back(total_bits);
 
         auto lock_stderr = std::scoped_lock(mutex_stderr);
-        fprintf(stderr, "thread=%zu, EbNo_dB=%.1f, BER=%.3e\n", thread_id, EbNo_dB, bit_error_rate);
+        fprintf(stderr, "thread=%zu,name='%s',K=%zu,R=%zu,decode=%s,simd=%s,iter=%zu,EbNo_dB=%.1f,BER=%.3e,timeout=%u\n", 
+            thread_id,
+            code.name, code.K, code.R, 
+            get_decode_type_str(decode_type), get_simd_type_string(simd_type),
+            curr_point, EbNo_dB, bit_error_rate, is_timeout
+        );
         if (total_bit_errors == 0) break;
-        if (curr_point >= test_config.maximum_data_points) break;
+        if (curr_point >= args.maximum_data_points) break;
+        if (is_timeout) break;
     }
 
     return results;
@@ -350,6 +423,11 @@ void print_test_results(
     const DecodeType decode_type, const SIMD_Type simd_type,
     const TestResults& results
 ) {
+    if (!g_is_first_result) {
+        fprintf(fp_out, ",\n");
+    } else {
+        g_is_first_result = false;
+    }
     fprintf(fp_out, "{\n");
     fprintf(fp_out, " \"name\": \"%s\",\n", code.name);
     fprintf(fp_out, " \"decode_type\": \"%s\",\n", get_decode_type_str(decode_type));
@@ -366,9 +444,4 @@ void print_test_results(
     fprintf_list(fp_out, "%.3e", tcb::span<const float>(results.bit_error_rates));
     fprintf(fp_out, "\n");
     fprintf(fp_out, "}");
-    if (thread_pool->get_total_tasks() != 1) {
-        fprintf(fp_out, ","); 
-    }
-    fprintf(fp_out, "\n");
-    fflush(fp_out);
 }
