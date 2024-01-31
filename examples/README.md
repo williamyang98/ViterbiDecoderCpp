@@ -24,3 +24,12 @@ Example programs which use the viterbi decoder library.
 3. ```python ./plot_snr_ber.py ./data_snr_ber_0.txt```
 
 **NOTE**: soft_8 decoders for high code rates will overflow for scalar implementations due to non saturating arithmetic.
+
+### Run benchmark
+1. ```./build/run_benchmark.exe > ./data_benchmark_0.txt```
+2. ```pip install numpy```
+3. ```python ./parse_benchmark.py ./data_benchmark_0.txt```
+
+To compare benchmarks use:
+
+```diff -y <(python ./parse_benchmark.py ./0.txt) <(python ./parse_benchmark.py ./1.txt)```

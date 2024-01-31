@@ -2,6 +2,9 @@ build/
 build-*/
 build_*/
 data_snr/
+data_*/
+data-*/
+data/
 venv/
 .venv/
 .env/

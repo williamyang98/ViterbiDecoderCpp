@@ -3,9 +3,13 @@
 #include <stdlib.h>
 #include <stddef.h>
 #include <string.h>
+#include <string>
 #include <inttypes.h>
+#include <cctype>
 #include <vector>
 #include <random>
+#include <optional>
+#include <mutex>
 
 #include "viterbi/convolutional_encoder.h"
 #include "viterbi/convolutional_encoder_lookup.h"
@@ -16,283 +20,229 @@
 #include "helpers/simd_type.h"
 #include "helpers/decode_type.h"
 #include "helpers/test_helpers.h"
-#include "utility/timer.h"
-#include "utility/expected.hpp"
+#include "helpers/cli_filters.h"
 #include "getopt/getopt.h"
+#include "utility/timer.h"
+#include "utility/span.h"
+#include "utility/thread_pool.h"
 
-struct TestResults {
-    float update_symbols_per_ms = 0.0f;
-    float reset_bits_per_ms = 0.0f;
-    float chainback_bits_per_ms = 0.0f;
-    float bit_error_rate = 0.0f;      
-    size_t total_incorrect_bits = 0u;
-    size_t total_decoded_bits = 0u;
-    size_t total_error = 0u;
-    size_t total_runs = 0u;
+struct TestResult {
+    uint64_t update_symbols_ns;
+    uint64_t chainback_bits_ns;
 };
 
 struct Arguments {
-    size_t code_id;
-    DecodeType decode_type;
-    size_t total_input_bytes;
     float total_duration_seconds;
+    CLI_Filters filters;
 };
 
 template <size_t K, size_t R, typename code_t>
-void select_code(const Code<K,R,code_t>& code, Arguments args);
+void select_code(const Code<K,R,code_t>& code, size_t code_id, Arguments args);
 
 template <class factory_t, size_t K, size_t R, typename code_t, typename soft_t, typename error_t>
 void init_test(
     const Code<K,R,code_t>& code, 
     Decoder_Config<soft_t,error_t>(*config_factory)(const size_t),
+    DecodeType decode_type,
     Arguments args
 );
 
 template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t>
-TestResults run_test(
+void run_test(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
     const soft_t* symbols, const size_t total_symbols, 
     const uint8_t* in_bytes, uint8_t* out_bytes, const size_t total_input_bytes,
-    const float total_duration_seconds
+    const float total_duration_seconds,
+    std::vector<TestResult>& out_results
 );
+
+template <size_t K, size_t R, typename code_t>
+void fprintf_results(
+    FILE* fp_out, 
+    const Code<K,R,code_t>& code, DecodeType decode_type, SIMD_Type simd_type,
+    tcb::span<const TestResult> results,
+    size_t total_input_bytes, size_t total_symbols
+);
+
 
 void usage() {
     fprintf(stderr, 
         " run_benchmark, Runs benchmark on viterbi decoding\n\n"
-        "    [-c <code id> (default: 0)]\n"
-        "    [-d <decode_type> (default: soft_16)]\n"
-        "        soft_16: use u16 error type and soft decision boundaries\n"
-        "        soft_8:  use u8  error type and soft decision boundaries\n"
-        "        hard_8:  use u8  error type and hard decision boundaries\n"
-        "    [-L <total input bytes> (default: 1024)]\n"
-        "    [-T <total duration of benchmark> (default: 1.0) ]\n"
-        "    [-l Lists all available codes]\n"
+        "    [-t <total_threads> (default: 1)]\n"
+        "    [-T <total duration of benchmark> (default: 1.0)]\n"
+    );
+    cli_filters_print_usage();
+    fprintf(stderr,
         "    [-h Show usage]\n"
     );
 }
 
-tl::expected<Arguments, int> parse_args(int argc, char** argv) {
-    struct {
-        int code_id = 0;
-        int total_input_bytes = 1024;
-        float total_duration_seconds = 1.0;
-        bool is_show_list = false;
-        const char* decode_type_str = NULL;
-    } args;
-
-	int opt; 
-    while ((opt = getopt_custom(argc, argv, "c:d:L:T:lh")) != -1) {
-        switch (opt) {
-        case 'c':
-            args.code_id = atoi(optarg);
-            break;
-        case 'd':
-            args.decode_type_str = optarg;
-            break;
-        case 'L':
-            args.total_input_bytes = atoi(optarg);
-            break;
-        case 'l':
-            args.is_show_list = true;
-            break;
-        case 'T':
-            args.total_duration_seconds = float(atof(optarg));
-            break;
-        case 'h':
-        default:
-            usage();
-            return tl::unexpected(0);
-        }
-    }
-
-    // Update selected decode mode
-    auto decode_type = DecodeType::SOFT16;
-    if (args.decode_type_str != NULL) {
-        if (strncmp(args.decode_type_str, "soft_16", 8) == 0) {
-            decode_type = DecodeType::SOFT16;
-        } else if (strncmp(args.decode_type_str, "soft_8", 7) == 0) {
-            decode_type = DecodeType::SOFT8;
-        } else if (strncmp(args.decode_type_str, "hard_8", 7) == 0) {
-            decode_type = DecodeType::HARD8;
-        } else {
-            fprintf(
-                stderr, 
-                "Invalid option for mode='%s'\n"
-                "Run '%s -h' for description of '-M'\n", 
-                args.decode_type_str, 
-                argv[0]);
-            return tl::unexpected(1);
-        }
-    }
-
-    const char* decode_type_str = get_decode_type_str(decode_type);
-    printf("Using %s decoders\n", decode_type_str);
-
-    // Other arguments
-    if (args.is_show_list) {
-        SELECT_DECODE_TYPE(decode_type, {
-            using factory_t = it1;
-            list_codes<factory_t>();
-        });
-        return tl::unexpected(0);
-    }
-
-    if ((args.code_id < 0) || (args.code_id >= COMMON_CODES.N)) {
-        fprintf(
-            stderr, 
-            "Config must be between %d...%d\n"
-            "Run '%s -l' for list of codes\n", 
-            0, int(COMMON_CODES.N-1), argv[0]);
-        return tl::unexpected(1);
-    }
-
-    if (args.total_duration_seconds <= 0.0f) {
-        fprintf(stderr, "Duration of benchmark in seconds must be positive (%.3f)\n", args.total_duration_seconds);
-        return tl::unexpected(1);
-    }
-
-    if (args.total_input_bytes < 0) {
-        fprintf(stderr, "Total input bytes must be positive\n");
-        return tl::unexpected(1);
-    }
-
-    Arguments out;
-    out.code_id = size_t(args.code_id);
-    out.decode_type = decode_type;
-    out.total_input_bytes = size_t(args.total_input_bytes);
-    out.total_duration_seconds = args.total_duration_seconds;
-    return out;
-}
+static bool g_is_first_result = true;
+static std::unique_ptr<ThreadPool> thread_pool = nullptr;
+static std::mutex mutex_stderr;
+static std::mutex mutex_fp_out;
+static FILE* fp_out = stdout;
 
 int main(int argc, char** argv) {
-    auto res = parse_args(argc, argv);
-    if (!res) {
-        return res.error();
+    int total_threads = 1;
+    float total_duration_seconds = 1.0;
+    CLI_Filters filters;
+    while (true) {
+        const int opt = getopt_custom(argc, argv, "t:T:h" CLI_FILTERS_GETOPT_STRING);
+        if (opt == -1) break;
+        switch (opt) {
+            case 't':
+                total_threads = atoi(optarg);
+                break;
+            case 'T':
+                total_duration_seconds = float(atof(optarg));
+                break;
+            case 'h':
+                usage();
+                return 0;
+            default: {
+                using R = CLI_Filters_Getopt_Result;
+                const auto res = cli_filters_parse_getopt(filters, opt, optarg, argv[0]);
+                if (res == R::ERROR_PARSE) return 1;
+                if (res == R::SUCCESS_EXIT) return 0;
+                if (res == R::NONE) {
+                    fprintf(stderr, "Invalid flag -%c\n", char(opt));
+                    usage();
+                    return 1;
+                }
+                break;
+            }
+        }
     }
 
-    auto& args = res.value();
-    SELECT_COMMON_CODES(args.code_id, {
+    if (total_threads < 0) {
+        fprintf(stderr, "Total threads must be >= 0, got %d\n", total_threads);
+        return 1;
+    }
+
+    if (total_duration_seconds <= 0.0f) {
+        fprintf(stderr, "Duration of benchmark in seconds must be positive (%.3f)\n", total_duration_seconds);
+        return 1;
+    }
+
+    Arguments args;
+    args.total_duration_seconds = total_duration_seconds;
+    args.filters = filters;
+
+    thread_pool = std::make_unique<ThreadPool>(size_t(total_threads));
+ 
+    size_t code_id = 0;
+    FOR_COMMON_CODES({
         const auto& code = it;
-        select_code(code, args);
+        select_code(code, code_id, args);
+        code_id++;
     });
+
+    const int total_tasks = thread_pool->get_total_tasks();
+    fprintf(stderr, "Using %d threads\n", total_threads);
+    fprintf(stderr, "Total tasks in thread pool: %d\n", total_tasks);
+    if (total_tasks > 0) {
+        fprintf(fp_out, "[\n");
+        thread_pool->wait_all();
+        fprintf(fp_out, "]\n");
+    }
     return 0;
 }
 
 template <size_t K, size_t R, typename code_t>
-void select_code(const Code<K,R,code_t>& code, Arguments args) {
-    SELECT_DECODE_TYPE(args.decode_type, {
-        auto config = it0;
-        using factory_t = it1;
-        init_test<factory_t>(code, config, args);
-    });
+void select_code(const Code<K,R,code_t>& code, size_t code_id, Arguments args) {
+    if (!args.filters.allow_code_index(code_id)) return;
+    for (const auto decode_type: Decode_Type_List) {
+        if (!args.filters.allow_decode_type(decode_type)) continue;
+        SELECT_DECODE_TYPE(decode_type, {
+            auto config = it0;
+            using factory_t = it1;
+            init_test<factory_t>(code, config, decode_type, args);
+        });
+    }
 }
 
 template <class factory_t, size_t K, size_t R, typename code_t, typename soft_t, typename error_t>
 void init_test(
     const Code<K,R,code_t>& code, 
     Decoder_Config<soft_t,error_t>(*config_factory)(const size_t),
-    Arguments args
+    DecodeType decode_type, Arguments args
 ) {
-
-    printf("Using '%s': K=%zu, R=%zu\n", code.name, code.K, code.R);
-
     const Decoder_Config<soft_t, error_t> config = config_factory(code.R);
-    auto enc = ConvolutionalEncoder_ShiftRegister(code.K, code.R, code.G.data());
-    auto branch_table = ViterbiBranchTable<K,R,soft_t>(code.G.data(), config.soft_decision_high, config.soft_decision_low);
-    auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(branch_table, config.decoder_config);
-
-    // Generate test data
-    const size_t total_input_bytes = args.total_input_bytes;
-    const size_t total_input_bits = total_input_bytes*8u;
-    std::vector<uint8_t> tx_input_bytes;
-    std::vector<soft_t> output_symbols; 
-    std::vector<uint8_t> rx_input_bytes;
-    tx_input_bytes.resize(total_input_bytes);
-    rx_input_bytes.resize(total_input_bytes);
-    {
-        const size_t total_tail_bits = K-1u;
-        const size_t total_data_bits = total_input_bytes*8;
-        const size_t total_bits = total_data_bits + total_tail_bits;
-        const size_t total_symbols = total_bits * R;
-        output_symbols.resize(total_symbols);
-    }
-
-    generate_random_bytes(tx_input_bytes.data(), tx_input_bytes.size());
-    encode_data(
-        &enc, 
-        tx_input_bytes.data(), tx_input_bytes.size(), 
-        output_symbols.data(), output_symbols.size(),
-        config.soft_decision_high, config.soft_decision_low
-    );
-
-    // compare results
-    auto print_independent = [](const TestResults src) {
-        printf("update        = %.3f symbols/ms\n", src.update_symbols_per_ms);
-        printf("chainback     = %.3f bits/ms\n", src.chainback_bits_per_ms);
-        printf("reset         = %.3f bits/ms\n", src.reset_bits_per_ms);
-        printf("ber           = %.4f\n", src.bit_error_rate);
-        printf("errors        = %zu/%zu\n", src.total_incorrect_bits, src.total_decoded_bits);
-        printf("error_metric  = %" PRIu64 "\n",  src.total_error);
-    };
-
-    auto print_comparison = [](const TestResults ref, const TestResults src) {
-        const float update_speedup = src.update_symbols_per_ms / ref.update_symbols_per_ms;
-        const float chainback_speedup = src.chainback_bits_per_ms / ref.chainback_bits_per_ms;
-        const float reset_speedup = src.reset_bits_per_ms / ref.reset_bits_per_ms;
-        printf("update        = %.3f symbols/ms (x%.2f)\n", src.update_symbols_per_ms, update_speedup);
-        printf("chainback     = %.3f bits/ms (x%.2f)\n", src.chainback_bits_per_ms, chainback_speedup);
-        printf("reset         = %.3f bits/ms (x%.2f)\n", src.reset_bits_per_ms, reset_speedup);
-        printf("ber           = %.4f\n", src.bit_error_rate);
-        printf("errors        = %zu/%zu\n", src.total_incorrect_bits, src.total_decoded_bits);
-        printf("error_metric  = %" PRIu64 "\n",  src.total_error);
-    };
-
-    // Run tests
-    const float total_duration_seconds = args.total_duration_seconds;
-    TestResults scalar_test_results;
-    for (const auto& simd_type: SIMD_Type_List) {
+    for (const auto simd_type: SIMD_Type_List) {
+        if (!args.filters.allow_simd_type(simd_type)) continue;
         SELECT_FACTORY_ITEM(factory_t, simd_type, K, R, {
             using decoder_t = it;
             if constexpr(decoder_t::is_valid) {
-                vitdec.set_traceback_length(total_input_bits);
-                const auto res = run_test<decoder_t>(
-                    vitdec, 
-                    output_symbols.data(), output_symbols.size(), 
-                    tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
-                    total_duration_seconds
-                );
+                thread_pool->push_task([code, config, decode_type, simd_type, args](size_t thread_id) {
+                    const float total_duration_seconds = args.total_duration_seconds;
+                    auto enc = ConvolutionalEncoder_ShiftRegister(code.K, code.R, code.G.data());
+                    auto branch_table = ViterbiBranchTable<K,R,soft_t>(code.G.data(), config.soft_decision_high, config.soft_decision_low);
+                    auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(branch_table, config.decoder_config);
 
-                printf("> %s results\n", get_simd_type_string(simd_type));
-                if (simd_type == SIMD_Type::SCALAR) {
-                    print_independent(res);
-                    scalar_test_results = res;
-                } else {
-                    print_comparison(scalar_test_results, res);
-                }
-                printf("\n");
+                    // Scale number of input bytes based on time complexity
+                    const size_t runtime_scale = R * (1<<(K-1));
+                    const size_t total_input_bytes = size_t(std::ceil(64000.0f/std::sqrt(runtime_scale)));
+                    const size_t total_input_bits = total_input_bytes*8u;
+                    // Generate test data
+                    std::vector<uint8_t> tx_input_bytes;
+                    std::vector<soft_t> output_symbols; 
+                    std::vector<uint8_t> rx_input_bytes;
+                    tx_input_bytes.resize(total_input_bytes);
+                    rx_input_bytes.resize(total_input_bytes);
+                    {
+                        const size_t total_tail_bits = K-1u;
+                        const size_t total_data_bits = total_input_bytes*8;
+                        const size_t total_bits = total_data_bits + total_tail_bits;
+                        const size_t total_symbols = total_bits * R;
+                        output_symbols.resize(total_symbols);
+                    }
+ 
+                    std::srand(time(NULL));
+                    generate_random_bytes(tx_input_bytes.data(), tx_input_bytes.size());
+                    encode_data(
+                        &enc, 
+                        tx_input_bytes.data(), tx_input_bytes.size(), 
+                        output_symbols.data(), output_symbols.size(),
+                        config.soft_decision_high, config.soft_decision_low
+                    );
+
+                    std::vector<TestResult> results;
+                    results.reserve(4096);
+
+                    vitdec.set_traceback_length(total_input_bits);
+                    run_test<decoder_t>(
+                        vitdec, 
+                        output_symbols.data(), output_symbols.size(), 
+                        tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
+                        total_duration_seconds,
+                        results
+                    );
+                    const size_t total_results = results.size();
+                    auto lock_stderr = std::scoped_lock(mutex_stderr);
+                    fprintf(stderr, "thread=%zu,name='%s',K=%zu,R=%zu,decode=%s,simd=%s,input_bytes=%zu,total_results=%zu\n", 
+                        thread_id,
+                        code.name, code.K, code.R, 
+                        get_decode_type_str(decode_type), get_simd_type_string(simd_type), 
+                        total_input_bytes, total_results
+                    );
+                    auto lock_fp_out = std::scoped_lock(mutex_fp_out);
+                    fprintf_results(fp_out, code, decode_type, simd_type, results, total_input_bytes, output_symbols.size());
+                });
             }
         });
     }
 }
 
 template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t>
-TestResults run_test(
+void run_test(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
     const soft_t* symbols, const size_t total_symbols, 
     const uint8_t* in_bytes, uint8_t* out_bytes, const size_t total_input_bytes,
-    const float total_duration_seconds
+    const float total_duration_seconds,
+    std::vector<TestResult>& out_results
 ) {
     const size_t total_input_bits = total_input_bytes*8u;
-    constexpr size_t print_rate = 1u;
-
-
-    TestResults results;
-    uint64_t update_ns = 0;
-    uint64_t update_total_symbols = 0;
-    uint64_t reset_ns = 0;
-    uint64_t reset_total_bits = 0;
-    uint64_t chainback_ns = 0;
-    uint64_t chainback_total_bits = 0;
 
     Timer total_time;
     size_t curr_iteration = 0;
@@ -301,46 +251,64 @@ TestResults run_test(
         if (seconds_elapsed > total_duration_seconds) {
             break;
         }
-        curr_iteration++;
-        if (curr_iteration % 10 == 0) {
-            printf("Run: %.2f/%.2f\r", seconds_elapsed, total_duration_seconds);
-        }
-
+        TestResult result;
         {
             Timer t;
             vitdec.reset();
-            reset_ns += t.get_delta();
-            reset_total_bits += vitdec.get_traceback_length();
         }
         {
             Timer t;
             const uint64_t accumulated_error = decoder_t::template update<uint64_t>(vitdec, symbols, total_symbols);
-            update_ns += t.get_delta();
-            update_total_symbols += total_symbols;
-
-            const error_t normalised_error = vitdec.get_error();
-            results.total_error += accumulated_error + uint64_t(normalised_error);
+            result.update_symbols_ns = t.get_delta();
         }
         {
             Timer t;
             vitdec.chainback(out_bytes, total_input_bits, 0u);
-            chainback_ns += t.get_delta();
-            chainback_total_bits += total_input_bits;
+            result.chainback_bits_ns = t.get_delta();
         }
-        {
-        }
-        const size_t total_bit_errors = get_total_bit_errors(in_bytes, out_bytes, total_input_bytes);
-        results.total_incorrect_bits += total_bit_errors;
-        results.total_decoded_bits += total_input_bits;
-        results.total_runs++;
+        out_results.push_back(result);
     }
-    printf("%*s\r", 100, "");
+}
 
-    results.bit_error_rate = float(results.total_incorrect_bits) / float(results.total_decoded_bits);
+template <typename T, typename F>
+void fprintf_list(FILE* fp_out, const char* formatter, tcb::span<const T> list, F&& func) {
+    fprintf(fp_out, "[");
+    const size_t N = list.size();
+    for (size_t i = 0; i < N; i++) {
+        fprintf(fp_out, formatter, func(list[i]));
+        if (i < (N-1)) printf(",");
+    }
+    fprintf(fp_out, "]");
+}
 
-    const float rescale_ns_to_ms = 1e+6f;
-    results.update_symbols_per_ms = float(update_total_symbols) / float(update_ns)    * rescale_ns_to_ms;
-    results.reset_bits_per_ms     = float(reset_total_bits)     / float(reset_ns)     * rescale_ns_to_ms;
-    results.chainback_bits_per_ms = float(chainback_total_bits) / float(chainback_ns) * rescale_ns_to_ms;
-    return results;
+template <size_t K, size_t R, typename code_t>
+void fprintf_results(
+    FILE* fp_out, 
+    const Code<K,R,code_t>& code, DecodeType decode_type, SIMD_Type simd_type,
+    tcb::span<const TestResult> results,
+    size_t total_input_bytes, size_t total_symbols
+) {
+    if (!g_is_first_result) {
+        fprintf(fp_out, ",\n");
+    } else {
+        g_is_first_result = false;
+    }
+    fprintf(fp_out, "{\n");
+    fprintf(fp_out, " \"name\": \"%s\",\n", code.name);
+    fprintf(fp_out, " \"decode_type\": \"%s\",\n", get_decode_type_str(decode_type));
+    fprintf(fp_out, " \"simd_type\": \"%s\",\n", get_simd_type_string(simd_type));
+    fprintf(fp_out, " \"K\": %zu,\n", code.K);
+    fprintf(fp_out, " \"R\": %zu,\n", code.R);
+    fprintf(fp_out, " \"G\": ");
+    fprintf_list(fp_out, "%u", tcb::span<const code_t>(code.G), [](const auto& e) { return e; });
+    fprintf(fp_out, ",\n");
+    fprintf(fp_out, " \"total_input_bits\": %zu,\n", total_input_bytes*8);
+    fprintf(fp_out, " \"total_symbols\": %zu,\n", total_symbols);
+    fprintf(fp_out, " \"update_symbols_ns\": ");
+    fprintf_list(fp_out, "%" PRIu64, tcb::span<const TestResult>(results), [](const auto& e) { return e.update_symbols_ns; });
+    fprintf(fp_out, ",\n");
+    fprintf(fp_out, " \"chainback_bits_ns\": ");
+    fprintf_list(fp_out, "%" PRIu64, tcb::span<const TestResult>(results), [](const auto& e) { return e.chainback_bits_ns; });
+    fprintf(fp_out, "\n");
+    fprintf(fp_out, "}");
 }
