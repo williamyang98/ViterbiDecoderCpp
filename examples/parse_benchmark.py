@@ -35,6 +35,7 @@ class Sample:
         self.simd_type = get_simd_type(data["simd_type"])
         self.K = data["K"]
         self.R = data["R"]
+        self.G = data["G"]
         self.total_input_bits = data["total_input_bits"]
         self.total_symbols = data["total_symbols"]
         self.update_symbols_ns = np.array(data["update_symbols_ns"])
@@ -52,32 +53,46 @@ def get_scale_suffix(x: float) -> (float, str):
 def main():
     parser = argparse.ArgumentParser(
         prog="parse_benchmark", 
-        description="Parse and compare benchmark results", 
+        description="Parse and compare benchmark results",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument("filename", help="Output from run_benchmark.cpp")
-    parser.add_argument("--filter-code", help="Filter for specific code by name", default=None)
-    parser.add_argument("--filter-decode", help="Filter for specific decoder type", choices=[e.name.lower() for e in DecodeType])
-    parser.add_argument("--filter-simd", help="Filter for specific simd type", choices=[e.name.lower() for e in SimdType])
+    parser.add_argument("--filter-code", help="Filter for specific code by name", default=[], nargs='+')
+    parser.add_argument("--filter-decode", help="Filter for specific decoder type", choices=[e.name.lower() for e in DecodeType], default=[], nargs='+')
+    parser.add_argument("--filter-simd", help="Filter for specific simd type", choices=[e.name.lower() for e in SimdType], default=[], nargs='+')
+    parser.add_argument("--list-codes", help="List all codes in file", action='store_true')
     args = parser.parse_args()
-
-    filter_decode = None
-    filter_simd = None
-    if args.filter_decode != None:
-        filter_decode = get_decode_type(args.filter_decode)
-    if args.filter_simd != None:
-        filter_simd = get_simd_type(args.filter_simd)
-
+ 
+    # parse
     with open(args.filename, "r") as fp:
         json_text = fp.read()
-
     json_data = json.loads(json_text)
     all_samples = [Sample(x) for x in json_data]
 
-    sorted_keys = set(((s.name, s.K, s.R) for s in all_samples))
-    sorted_keys = list(sorted(sorted_keys, key=lambda s: (2**s[1]-1)*s[2]))
+    if args.list_codes:
+        samples = {s.name:s for s in all_samples}.values()
+        max_name_length = max((len(s.name) for s in samples))
+        print(f" {'Name'.ljust(max_name_length)} |  K  R | Coefficients")
+        for s in sorted(samples, key=lambda s: (2**s.K)*s.R):
+            print(f" {s.name.ljust(max_name_length)} | {s.K:2d} {s.R:2d} | {s.G}")
+        return
+
+    # filter
+    filter_decode = [get_decode_type(x) for x in args.filter_decode]
+    filter_simd = [get_simd_type(x) for x in args.filter_simd]
+    def filter_samples(s):
+        if filter_simd and not s.simd_type in filter_simd:
+            return False
+        if filter_decode and not s.decode_type in filter_decode:
+            return False
+        if args.filter_code and not s.name in args.filter_code:
+            return False
+        return True
+    all_samples = list(filter(filter_samples, all_samples))
 
     # print in groups of name->decode_type->simd_type
+    sorted_keys = set(((s.name, s.K, s.R) for s in all_samples))
+    sorted_keys = list(sorted(sorted_keys, key=lambda s: (2**s[1]-1)*s[2]))
     name_groups = []
     for (name, K, R) in sorted_keys:
         samples = [s for s in all_samples if s.name == name] 
@@ -96,19 +111,9 @@ def main():
             samples = list(sorted(samples, key=lambda s: s.simd_type.value))
             scalar_mean_symbol_rate = None
             scalar_mean_chainback_rate = None
-            is_print_header = False
+            s = samples[0]
+            print(f"name='{s.name}',K={s.K},R={s.R},decode={s.decode_type.name}")
             for s in samples:
-                if filter_simd != None and s.simd_type != filter_simd:
-                    continue
-                if filter_decode != None and s.decode_type != filter_decode:
-                    continue
-                if args.filter_code != None and args.filter_code != s.name:
-                    continue
-
-                if not is_print_header:
-                    print(f"name={s.name},K={s.K},R={s.R},decode={s.decode_type.name}")
-                    is_print_header = True
-
                 mean_symbol_rate = np.mean(s.symbol_rate)
                 mean_chainback_rate = np.mean(s.chainback_rate)
                 std_symbol_rate = np.std(s.symbol_rate)
@@ -133,9 +138,7 @@ def main():
                 if s.simd_type == SimdType.SCALAR:
                     scalar_mean_symbol_rate = mean_symbol_rate
                     scalar_mean_chainback_rate = mean_chainback_rate
-
-            if is_print_header:
-                print()
+            print()
 
 if __name__ == '__main__':
     main()

@@ -18,13 +18,13 @@ class SimdType(Enum):
 
 def get_decode_type(x: str) -> DecodeType:
     for type in DecodeType:
-        if type.name == x: 
+        if type.name.lower() == x.lower(): 
             return type
     raise Exception(f"invalid decode type '{x}'")
 
 def get_simd_type(x: str) -> SimdType:
     for type in SimdType:
-        if type.name == x: 
+        if type.name.lower() == x.lower(): 
             return type
     raise Exception(f"invalid simd type '{x}'")
 
@@ -35,6 +35,7 @@ class Sample:
         self.simd_type = get_simd_type(data["simd_type"])
         self.K = data["K"]
         self.R = data["R"]
+        self.G = data["G"]
         self.EbNo_dB = []
         self.ber = []
         # filter for log y-axis
@@ -45,25 +46,50 @@ class Sample:
             self.ber.append(y)
 
 def main():
-    parser = argparse.ArgumentParser(prog="plot_snr_ber", description="Plot SNR vs BER json data")
+    parser = argparse.ArgumentParser(
+        prog="plot_snr_ber", 
+        description="Plot SNR vs BER json data",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     parser.add_argument("filename", help="Output from run_snr_ber.cpp")
+    parser.add_argument("--filter-code", help="Filter for specific code by name", default=[], nargs='+')
+    parser.add_argument("--filter-decode", help="Filter for specific decoder type", choices=[e.name.lower() for e in DecodeType], default=[], nargs='+')
+    parser.add_argument("--filter-simd", help="Filter for specific simd type", choices=[e.name.lower() for e in SimdType], default=[], nargs='+')
+    parser.add_argument("--list-codes", help="List all codes in file", action='store_true')
     args = parser.parse_args()
-
+ 
+    # parse
     with open(args.filename, "r") as fp:
         json_text = fp.read()
- 
-    X_in = json.loads(json_text)
-    all_samples = [Sample(x) for x in X_in]
+    json_data = json.loads(json_text)
+    all_samples = [Sample(x) for x in json_data]
 
-    list_keys = set(((s.name, s.K, s.R) for s in all_samples))
-    list_keys = list(sorted(list_keys, key=lambda s: s[1]*s[2]))
-
-    decode_type_colour_map = plt.get_cmap("tab10")
-    decode_type_colours = {t:decode_type_colour_map(i) for i,t in enumerate(DecodeType)}
+    if args.list_codes:
+        samples = {s.name:s for s in all_samples}.values()
+        max_name_length = max((len(s.name) for s in samples))
+        print(f" {'Name'.ljust(max_name_length)} |  K  R | Coefficients")
+        for s in sorted(samples, key=lambda s: (2**s.K)*s.R):
+            print(f" {s.name.ljust(max_name_length)} | {s.K:2d} {s.R:2d} | {s.G}")
+        return
  
+    # filter
+    filter_decode = [get_decode_type(x) for x in args.filter_decode]
+    filter_simd = [get_simd_type(x) for x in args.filter_simd]
+    def filter_samples(s):
+        if filter_simd and not s.simd_type in filter_simd:
+            return False
+        if filter_decode and not s.decode_type in filter_decode:
+            return False
+        if args.filter_code and not s.name in args.filter_code:
+            return False
+        return True
+    all_samples = list(filter(filter_samples, all_samples))
+
     # plot in groups of name->simd_type->decode_type
+    sorted_keys = set(((s.name, s.K, s.R) for s in all_samples))
+    sorted_keys = list(sorted(sorted_keys, key=lambda s: s[1]*s[2]))
     name_groups = []
-    for (name, K, R) in list_keys:
+    for (name, K, R) in sorted_keys:
         samples = [s for s in all_samples if s.name == name] 
         simd_groups = []
         for simd_type in SimdType:
@@ -75,6 +101,9 @@ def main():
             continue
         name_groups.append(simd_groups)
  
+    # plot
+    decode_type_colour_map = plt.get_cmap("tab10")
+    decode_type_colours = {t:decode_type_colour_map(i) for i,t in enumerate(DecodeType)}
     for simd_group in name_groups:
         fig = plt.figure(1)
         # determine ticks for all subplots
