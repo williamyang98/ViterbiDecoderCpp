@@ -15,6 +15,7 @@
 #include "helpers/simd_type.h"
 #include "helpers/puncture_code_helpers.h"
 #include "helpers/test_helpers.h"
+#include "utility/console_colours.h"
 #include "utility/span.h"
 #include "getopt/getopt.h"
 
@@ -98,6 +99,9 @@ void usage() {
     );
 }
 
+static size_t total_tests = 0;
+static size_t total_passed_tests = 0;
+
 int main(int argc, char** argv) {
     int opt; 
     while ((opt = getopt_custom(argc, argv, "h")) != -1) {
@@ -118,6 +122,17 @@ int main(int argc, char** argv) {
             run_test<factory_t>(config);
         });
     };
+ 
+    if (total_passed_tests < total_tests) {
+        const size_t total_failed_tests = total_tests-total_passed_tests;
+        printf(CONSOLE_RED);
+        printf("FAILED %zu/%zu TESTS\n", total_failed_tests, total_tests);
+        printf(CONSOLE_RESET);
+        return 1;
+    } 
+    printf(CONSOLE_GREEN);
+    printf("PASSED %zu/%zu TESTS\n", total_passed_tests, total_tests);
+    printf(CONSOLE_RESET);
     return 0;
 }
 
@@ -167,6 +182,9 @@ void run_test(const Decoder_Config<soft_t,error_t>& config) {
                 printf("bit error rate=%.2f%%\n", bit_error_rate);
                 printf("%zu/%zu incorrect bits\n", total_errors, total_data_bits);
                 printf("\n");
+
+                if (total_errors == 0) total_passed_tests++;
+                total_tests++;
             }
         });
     }
@@ -192,8 +210,8 @@ size_t run_punctured_encoder(
                 PI_16, PI_total_bits,
                 soft_decision_high, soft_decision_low
             );
-            output_symbols_buf = output_symbols_buf.first(N);
-            input_bytes_buf = input_bytes_buf.first(total_bytes);
+            output_symbols_buf = output_symbols_buf.subspan(N);
+            input_bytes_buf = input_bytes_buf.subspan(total_bytes);
             total_output_symbols += N;
         }
 
@@ -206,8 +224,8 @@ size_t run_punctured_encoder(
                 PI_15, PI_total_bits,
                 soft_decision_high, soft_decision_low
             );
-            output_symbols_buf = output_symbols_buf.first(N);
-            input_bytes_buf = input_bytes_buf.first(total_bytes);
+            output_symbols_buf = output_symbols_buf.subspan(N);
+            input_bytes_buf = input_bytes_buf.subspan(total_bytes);
             total_output_symbols += N;
         }
 
@@ -245,7 +263,7 @@ uint64_t run_punctured_decoder(
         PI_16, PI_total_bits, 
         PI_total_bits*R*PI_16_total_count);
     accumulated_error += res.accumulated_error;
-    output_symbols_buf = output_symbols_buf.first(res.index_punctured_symbol);
+    output_symbols_buf = output_symbols_buf.subspan(res.index_punctured_symbol);
 
     res = decode_punctured_symbols<decoder_t>(
         vitdec, soft_decision_unpunctured,
@@ -253,7 +271,7 @@ uint64_t run_punctured_decoder(
         PI_15, PI_total_bits, 
         PI_total_bits*R*PI_15_total_count);
     accumulated_error += res.accumulated_error;
-    output_symbols_buf = output_symbols_buf.first(res.index_punctured_symbol);
+    output_symbols_buf = output_symbols_buf.subspan(res.index_punctured_symbol);
 
     res = decode_punctured_symbols<decoder_t>(
         vitdec, soft_decision_unpunctured,
@@ -261,7 +279,7 @@ uint64_t run_punctured_decoder(
         PI_X, 24, 
         24);
     accumulated_error += res.accumulated_error;
-    output_symbols_buf = output_symbols_buf.first(res.index_punctured_symbol);
+    output_symbols_buf = output_symbols_buf.subspan(res.index_punctured_symbol);
 
     assert(output_symbols_buf.size() == 0u);
     return accumulated_error;
