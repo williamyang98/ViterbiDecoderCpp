@@ -9,20 +9,29 @@
 #include "helpers/decode_type.h"
 
 struct CLI_Filters {
-    std::optional<size_t> code_index = std::nullopt;
-    std::optional<DecodeType> decode_type = std::nullopt;
-    std::optional<SIMD_Type> simd_type = std::nullopt;
-    bool allow_code_index(size_t i) {
-        if (code_index == std::nullopt) return true;
-        return code_index.value() == i;
+    std::vector<size_t> code_indices;
+    std::vector<DecodeType> decode_types;
+    std::vector<SIMD_Type> simd_types;
+    bool allow_code_index(size_t i) const {
+        if (code_indices.size() == 0) return true;
+        for (auto index: code_indices) {
+            if (index == i) return true;
+        }
+        return false;
     }
-    bool allow_decode_type(DecodeType type) {
-        if (decode_type == std::nullopt) return true;
-        return decode_type.value() == type;
+    bool allow_decode_type(DecodeType type) const {
+        if (decode_types.size() == 0) return true;
+        for (auto decode_type: decode_types) {
+            if (decode_type == type) return true;
+        }
+        return false;
     }
-    bool allow_simd_type(SIMD_Type type) {
-        if (simd_type == std::nullopt) return true;
-        return simd_type.value() == type;
+    bool allow_simd_type(SIMD_Type type) const {
+        if (simd_types.size() == 0) return true;
+        for (auto simd_type: simd_types) {
+            if (simd_type == type) return true;
+        }
+        return false;
     }
 };
 
@@ -143,25 +152,27 @@ static CLI_Filters_Getopt_Result cli_filters_parse_getopt(
                 fprintf(stderr, "Run '%s -l' for list of codes\n", argv0);
                 return R::ERROR_PARSE;
             }
-            filters.code_index = std::optional(size_t(index));
+            filters.code_indices.push_back(size_t(index));
             return R::SUCCESS_PARSE;
         };
         case 'd': {
-            filters.decode_type = cli_get_decode_type(optarg);
-            if (filters.decode_type == std::nullopt) {
+            const auto decode_type = cli_get_decode_type(optarg);
+            if (decode_type == std::nullopt) {
                 fprintf(stderr, "Invalid option for decode type: '%s'\n", optarg);
                 fprintf(stderr, "Run '%s -h' for list of valid decode types for -d\n", argv0);
                 return R::ERROR_PARSE;
             }
+            filters.decode_types.push_back(decode_type.value());
             return R::SUCCESS_PARSE;
         };
         case 's': {
-            filters.simd_type = cli_get_simd_type(optarg);
-            if (filters.simd_type == std::nullopt) {
+            const auto simd_type = cli_get_simd_type(optarg);
+            if (simd_type == std::nullopt) {
                 fprintf(stderr, "Invalid option for simd type: '%s'\n", optarg);
                 fprintf(stderr, "Run '%s -h' for list of valid simd types for -s\n", argv0);
                 return R::ERROR_PARSE;
             }
+            filters.simd_types.push_back(simd_type.value());
             return R::SUCCESS_PARSE;
         };
         case 'l': {
