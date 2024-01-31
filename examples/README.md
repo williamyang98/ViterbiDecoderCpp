@@ -19,7 +19,7 @@ Example programs which use the viterbi decoder library.
 1. ```./build/run_tests.exe```
 
 ### Plot performance of decoders
-1. ```./build/run_snr_ber.exe | tee ./data_snr_ber_0.txt```
+1. ```./build/run_snr_ber.exe > ./data_snr_ber_0.txt```
 2. ```pip install matplotlib```
 3. ```python ./plot_snr_ber.py ./data_snr_ber_0.txt```
 
