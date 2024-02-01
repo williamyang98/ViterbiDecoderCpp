@@ -126,10 +126,10 @@ int main(int argc, char** argv) {
                 random_seed = atoi(optarg);
                 break;
             case 'k':
-                maximum_generated_bits_scale = atof(optarg);
+                maximum_generated_bits_scale = float(atof(optarg));
                 break;
             case 'T':
-                timeout_seconds = std::optional(atof(optarg));
+                timeout_seconds = std::optional(float(atof(optarg)));
                 break;
             case 'h':
                 usage();
@@ -222,7 +222,7 @@ TestRange get_test_range(const size_t K, const size_t R) {
     // average_hamming_distance = constraint_length/2
     // ecc ∝ K*R
     // runtime ∝ R * 2^(K-1)
-    const size_t runtime_scale = R * (1<<(K-1));
+    const size_t runtime_scale = R * (size_t(1u)<<(K-1));
     const size_t error_correcting_capability = K*R;
     size_t base_total_bits = size_t(1e9); 
     TestRange range;

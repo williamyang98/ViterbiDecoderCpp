@@ -33,7 +33,7 @@ struct TestResult {
 
 struct Arguments {
     float total_duration_seconds;
-    size_t minimum_input_bytes;
+    size_t total_input_bytes;
     CLI_Filters filters;
 };
 
@@ -71,7 +71,7 @@ void usage() {
         " run_benchmark, Runs benchmark on viterbi decoding\n\n"
         "    [-t <total_threads> (default: 1)]\n"
         "    [-T <total_duration_of_benchmark_seconds> (default: 1.0)]\n"
-        "    [-M <minimum_input_bytes> (default: 128)]\n"
+        "    [-M <total_input_bytes> (default: 256)]\n"
     );
     cli_filters_print_usage();
     fprintf(stderr,
@@ -84,11 +84,12 @@ static std::unique_ptr<ThreadPool> thread_pool = nullptr;
 static std::mutex mutex_stderr;
 static std::mutex mutex_fp_out;
 static FILE* fp_out = stdout;
+static std::vector<std::vector<TestResult>> g_per_thread_test_results;
 
 int main(int argc, char** argv) {
     int total_threads = 1;
     float total_duration_seconds = 1.0;
-    int minimum_input_bytes = 128;
+    int total_input_bytes = 256;
     CLI_Filters filters;
     while (true) {
         const int opt = getopt_custom(argc, argv, "t:T:h" CLI_FILTERS_GETOPT_STRING);
@@ -101,7 +102,7 @@ int main(int argc, char** argv) {
                 total_duration_seconds = float(atof(optarg));
                 break;
             case 'M':
-                minimum_input_bytes = atoi(optarg);
+                total_input_bytes = atoi(optarg);
                 break;
             case 'h':
                 usage();
@@ -130,17 +131,21 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (minimum_input_bytes <= 0) {
-        fprintf(stderr, "Minimum input bytes must be > 0, got %d\n", minimum_input_bytes);
+    if (total_input_bytes <= 0) {
+        fprintf(stderr, "Total input bytes must be > 0, got %d\n", total_input_bytes);
         return 1;
     }
 
     Arguments args;
     args.total_duration_seconds = total_duration_seconds;
-    args.minimum_input_bytes = size_t(minimum_input_bytes);
+    args.total_input_bytes = size_t(total_input_bytes);
     args.filters = filters;
 
     thread_pool = std::make_unique<ThreadPool>(size_t(total_threads));
+    g_per_thread_test_results.resize(thread_pool->get_total_threads());
+    for (auto& pool: g_per_thread_test_results) {
+        pool.reserve(4096);
+    }
  
     size_t code_id = 0;
     FOR_COMMON_CODES({
@@ -190,13 +195,9 @@ void init_test(
                     auto enc = ConvolutionalEncoder_ShiftRegister(code.K, code.R, code.G.data());
                     auto branch_table = ViterbiBranchTable<K,R,soft_t>(code.G.data(), config.soft_decision_high, config.soft_decision_low);
                     auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(branch_table, config.decoder_config);
-
-                    // Scale number of input bytes based on time complexity
-                    const size_t runtime_scale = R * (1<<(K-1));
-                    size_t total_input_bytes = size_t(std::ceil(64000.0f/std::sqrt(runtime_scale)));
-                    if (total_input_bytes < args.minimum_input_bytes) total_input_bytes = args.minimum_input_bytes;
-                    const size_t total_input_bits = total_input_bytes*8u;
                     // Generate test data
+                    const size_t total_input_bytes = args.total_input_bytes;
+                    const size_t total_input_bits = total_input_bytes*8u;
                     std::vector<uint8_t> tx_input_bytes;
                     std::vector<soft_t> output_symbols; 
                     std::vector<uint8_t> rx_input_bytes;
@@ -210,7 +211,7 @@ void init_test(
                         output_symbols.resize(total_symbols);
                     }
  
-                    std::srand(time(NULL));
+                    std::srand(static_cast<unsigned int>(time(NULL)));
                     generate_random_bytes(tx_input_bytes.data(), tx_input_bytes.size());
                     encode_data(
                         &enc, 
@@ -218,9 +219,9 @@ void init_test(
                         output_symbols.data(), output_symbols.size(),
                         config.soft_decision_high, config.soft_decision_low
                     );
-
-                    std::vector<TestResult> results;
-                    results.reserve(4096);
+ 
+                    auto& results = g_per_thread_test_results[thread_id];
+                    results.clear();
 
                     vitdec.set_traceback_length(total_input_bits);
                     run_test<decoder_t>(
