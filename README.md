@@ -1,7 +1,7 @@
 # Introduction
-[![x86-windows](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/x86-windows.yml/badge.svg)](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/x86-windows.yml)
-[![x86-linux](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/x86-linux.yml/badge.svg)](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/x86-linux.yml)
-[![arm-linux](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/arm-linux.yml/badge.svg)](https://github.com/FiendChain/ViterbiDecoderCpp/actions/workflows/arm-linux.yml)
+[![x86-windows](https://github.com/williamyang98/ViterbiDecoderCpp/actions/workflows/x86-windows.yml/badge.svg)](https://github.com/williamyang98/ViterbiDecoderCpp/actions/workflows/x86-windows.yml)
+[![x86-linux](https://github.com/williamyang98/ViterbiDecoderCpp/actions/workflows/x86-linux.yml/badge.svg)](https://github.com/williamyang98/ViterbiDecoderCpp/actions/workflows/x86-linux.yml)
+[![arm-linux](https://github.com/williamyang98/ViterbiDecoderCpp/actions/workflows/arm-linux.yml/badge.svg)](https://github.com/williamyang98/ViterbiDecoderCpp/actions/workflows/arm-linux.yml)
 
 This is a C++ port of Phil Karn's Viterbi decoder which can be found [here](https://github.com/ka9q/libfec).
 
@@ -17,7 +17,7 @@ Modifications include:
 
 Performance is similar to Phil Karn's original C implementation for provided decoders.
 
-Heavy templating is used for better performance. Compared to code that uses constraint length (K) and code rate (R) as runtime parameters [here](https://github.com/FiendChain/ViterbiDecoderCpp/tree/44cdd3c0a38a748a7084edeff859cf4d54ac911a), the templated version is up to 50% faster. This is because the compiler can perform more optimisations if the constraint length and code rate are known ahead of time.
+Heavy templating is used for better performance. Compared to code that uses constraint length (K) and code rate (R) as runtime parameters [here](https://github.com/williamyang98/ViterbiDecoderCpp/tree/44cdd3c0a38a748a7084edeff859cf4d54ac911a), the templated version is up to 50% faster. This is because the compiler can perform more optimisations if the constraint length and code rate are known ahead of time.
 
 # Intrinsics support
 For x86 processors AVX2 or SSE4.1 is required for vectorisation.
@@ -70,7 +70,7 @@ Using the 16bit and 8bit based intrinsics implementations as a guide you can mak
     - Due to the small maximum branch error of 2*R we can set the renormalisation threshold to be quite high. 
     - <code>renormalisation_threshold = UINT8_MAX - (2\*R\*10)</code>
     - This is less accurate compared to 16bit soft decision decoding but with up to 2x performance due to the usage of 8bit values.
-    - ![image](https://github.com/FiendChain/ViterbiDecoderCpp/assets/21079869/561262c5-c9fd-4245-8f4c-244fe21b69e2)
+    - ![image](https://github.com/williamyang98/ViterbiDecoderCpp/assets/21079869/561262c5-c9fd-4245-8f4c-244fe21b69e2)
 - Depending on your usage requirements changes to the library are absolutely encouraged
 - Additionally check out Phil Karn's fine tuned assembly code [here](https://github.com/ka9q/libfec) for the best possible performance 
 - This code is not considered heavily tested and your mileage may vary. Refer to ```/examples``` for applications to benchmark performance and verify accuracy.
