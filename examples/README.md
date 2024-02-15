@@ -3,8 +3,10 @@ Example programs which use the viterbi decoder library.
 
 ## Building programs
 1. ```cd examples```
-2. ```cmake . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release```
-3. ```ninja -C build```
+2. Configure cmake: ```cmake . -B build --preset windows-msvc -DCMAKE_BUILD_TYPE=Release```
+3. Build: ```cmake --build build --config Release```
+
+Change preset for your specific compiler. Refer to ```CMakePresets.json``` for example presets.
 
 ## Programs
 | Name | Description |

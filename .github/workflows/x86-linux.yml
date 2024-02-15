@@ -23,11 +23,11 @@ jobs:
  
     - name: Configure CMake
       working-directory: ./examples
-      run: cmake -B ./build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -G Ninja -DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/g++ 
+      run: cmake . -B build --preset gcc -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
     - name: Build
       working-directory: ./examples
-      run: ninja -C ./build
+      run: cmake --build build --config ${{env.BUILD_TYPE}}
 
     - name: Run simple example
       working-directory: ./examples
