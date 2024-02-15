@@ -214,7 +214,7 @@ public:
     void chainback(uint8_t* bytes_out, const size_t total_bits, const size_t end_state = 0u) {
         const size_t traceback_length = get_traceback_length();
         assert(traceback_length >= total_bits);
-        assert((m_current_decoded_bit - TOTAL_STATE_BITS) == total_bits);
+        assert((m_current_decoded_bit - TOTAL_STATE_BITS) >= total_bits);
         assert(end_state < NUMSTATES);
 
         ViterbiTracebackBuffer<K> decode_buffer;
