@@ -17,6 +17,12 @@ function(create_example_target target)
     target_link_libraries(${target} PRIVATE getopt viterbi)
 endfunction()
 
+if(NOT WIN32)
+    find_package(Threads REQUIRED)
+    add_compile_options(-pthread)
+    link_libraries(Threads::Threads)
+endif()
+
 create_example_target(run_tests)
 create_example_target(run_benchmark)
 create_example_target(run_simple)
