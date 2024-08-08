@@ -11,6 +11,7 @@
 #include "viterbi/convolutional_encoder.h"
 #include "viterbi/convolutional_encoder_shift_register.h"
 #include "viterbi/viterbi_decoder_core.h"
+#include "viterbi/viterbi_branch_table.h"
 
 #include "helpers/common_codes.h"
 #include "helpers/simd_type.h"
@@ -79,6 +80,7 @@ void run_tests(
 template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t>
 TestResult run_test(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
+    const ViterbiBranchTable<K,R,soft_t>& branch_table,
     ConvolutionalEncoder* enc, 
     const size_t total_input_bytes,
     const soft_t soft_decision_high,
@@ -161,7 +163,7 @@ void run_tests(
     const Decoder_Config<soft_t, error_t> config = config_factory(code.R);
     auto enc = ConvolutionalEncoder_ShiftRegister(code.K, code.R, code.G.data());
     auto branch_table = ViterbiBranchTable<K,R,soft_t>(code.G.data(), config.soft_decision_high, config.soft_decision_low);
-    auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(branch_table, config.decoder_config);
+    auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(config.decoder_config);
 
     for (const auto& simd_type: SIMD_Type_List) {
         SELECT_FACTORY_ITEM(factory_t, simd_type, K, R, {
@@ -175,7 +177,7 @@ void run_tests(
                     global_results.total_skipped++;
                 } else {
                     const auto res = run_test<decoder_t>(
-                        vitdec, &enc, 
+                        vitdec, branch_table, &enc, 
                         total_input_bytes, 
                         config.soft_decision_high, config.soft_decision_low
                     );
@@ -193,6 +195,7 @@ void run_tests(
 template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t>
 TestResult run_test(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
+    const ViterbiBranchTable<K,R,soft_t>& branch_table,
     ConvolutionalEncoder* enc, 
     const size_t total_input_bytes,
     const soft_t soft_decision_high,
@@ -227,7 +230,7 @@ TestResult run_test(
 
     const size_t total_output_symbols = output_symbols.size();
     vitdec.reset();
-    const uint64_t accumulated_error = decoder_t::template update<uint64_t>(vitdec, output_symbols.data(), total_output_symbols);
+    const uint64_t accumulated_error = decoder_t::template update<uint64_t>(vitdec, output_symbols.data(), total_output_symbols, branch_table);
     const uint64_t error = accumulated_error + uint64_t(vitdec.get_error());
     vitdec.chainback(rx_input_bytes.data(), total_input_bits, 0u);
 

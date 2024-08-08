@@ -15,6 +15,7 @@
 #include "viterbi/convolutional_encoder_lookup.h"
 #include "viterbi/convolutional_encoder_shift_register.h"
 #include "viterbi/viterbi_decoder_core.h"
+#include "viterbi/viterbi_branch_table.h"
 
 #include "helpers/common_codes.h"
 #include "helpers/simd_type.h"
@@ -51,6 +52,7 @@ void init_test(
 template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t>
 void run_test(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
+    const ViterbiBranchTable<K,R,soft_t>& branch_table,
     const soft_t* symbols, const size_t total_symbols, 
     const uint8_t* in_bytes, uint8_t* out_bytes, const size_t total_input_bytes,
     const float total_duration_seconds,
@@ -194,7 +196,7 @@ void init_test(
                     const float total_duration_seconds = args.total_duration_seconds;
                     auto enc = ConvolutionalEncoder_ShiftRegister(code.K, code.R, code.G.data());
                     auto branch_table = ViterbiBranchTable<K,R,soft_t>(code.G.data(), config.soft_decision_high, config.soft_decision_low);
-                    auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(branch_table, config.decoder_config);
+                    auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(config.decoder_config);
                     // Generate test data
                     const size_t total_input_bytes = args.total_input_bytes;
                     const size_t total_input_bits = total_input_bytes*8u;
@@ -225,7 +227,7 @@ void init_test(
 
                     vitdec.set_traceback_length(total_input_bits);
                     run_test<decoder_t>(
-                        vitdec, 
+                        vitdec, branch_table,
                         output_symbols.data(), output_symbols.size(), 
                         tx_input_bytes.data(), rx_input_bytes.data(), total_input_bytes,
                         total_duration_seconds,
@@ -250,6 +252,7 @@ void init_test(
 template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t>
 void run_test(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
+    const ViterbiBranchTable<K,R,soft_t>& branch_table,
     const soft_t* symbols, const size_t total_symbols, 
     const uint8_t* in_bytes, uint8_t* out_bytes, const size_t total_input_bytes,
     const float total_duration_seconds,
@@ -271,7 +274,7 @@ void run_test(
         }
         {
             Timer t;
-            const uint64_t accumulated_error = decoder_t::template update<uint64_t>(vitdec, symbols, total_symbols);
+            const uint64_t accumulated_error = decoder_t::template update<uint64_t>(vitdec, symbols, total_symbols, branch_table);
             result.update_symbols_ns = t.get_delta();
         }
         {

@@ -7,7 +7,6 @@
  * 07/2023 - Refactored these data structured into cleared individual components
  */
 #pragma once
-#include "./viterbi_branch_table.h"
 #include "./viterbi_decoder_config.h"
 #include "./alignment.h"
 
@@ -162,13 +161,12 @@ public:
     static constexpr size_t R = code_rate;
     static constexpr size_t TOTAL_STATE_BITS = K-1;
     static constexpr size_t NUMSTATES = 1 << TOTAL_STATE_BITS;
-    using BranchTable = ViterbiBranchTable<K,R,soft_t>;
     using Config = ViterbiDecoder_Config<error_t>;
     using Metrics = ViterbiErrorMetrics<K,error_t>;
     using Decisions = ViterbiDecisionBits<K,uintptr_t>;
 public:
-    ViterbiDecoder_Core(const BranchTable& _branch_table, const Config& _config)
-    :   m_branch_table(_branch_table), m_config(_config), m_decisions()
+    ViterbiDecoder_Core(const Config& _config)
+    :   m_config(_config), m_decisions()
     {
         static_assert(K >= 2u);       
         static_assert(R >= 1u);
@@ -235,7 +233,6 @@ public:
         }
     }
 public:
-    const BranchTable& m_branch_table;
     const Config m_config;
     Metrics m_metrics;
     Decisions m_decisions;

@@ -7,6 +7,7 @@
  */
 #pragma once
 #include "../viterbi_decoder_core.h"
+#include "../viterbi_branch_table.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <assert.h>
@@ -21,6 +22,7 @@ class ViterbiDecoder_SSE_u16
 {
 private:
     using Base = ViterbiDecoder_Core<constraint_length,code_rate,uint16_t,int16_t>;
+    using BranchTable = ViterbiBranchTable<constraint_length,code_rate,int16_t>;
     using decision_bits_t = typename Base::Decisions::format_t;
 private:
     // Calculate the minimum constraint length for vectorisation
@@ -37,16 +39,16 @@ private:
     // For stride(...) >= 1, then K >= 5
     static constexpr size_t SIMD_ALIGN = sizeof(__m128i);
     static constexpr size_t v_stride_metric = Base::Metrics::SIZE_IN_BYTES/SIMD_ALIGN;
-    static constexpr size_t v_stride_branch_table = Base::BranchTable::SIZE_IN_BYTES/SIMD_ALIGN;
+    static constexpr size_t v_stride_branch_table = BranchTable::SIZE_IN_BYTES/SIMD_ALIGN;
     static constexpr size_t K_min = 5;
 public:
     static constexpr bool is_valid = Base::K >= K_min;
 
     template <typename sum_error_t>
-    static sum_error_t update(Base& base, const int16_t* symbols, const size_t N) {
+    static sum_error_t update(Base& base, const int16_t* symbols, const size_t N, const BranchTable& table) {
         static_assert(is_valid, "Insufficient constraint length for vectorisation");
         static_assert(Base::Metrics::ALIGNMENT % SIMD_ALIGN == 0);
-        static_assert(Base::BranchTable::ALIGNMENT % SIMD_ALIGN == 0);
+        static_assert(BranchTable::ALIGNMENT % SIMD_ALIGN == 0);
 
         // number of symbols must be a multiple of the code rate
         assert(N % Base::R == 0);
@@ -59,7 +61,7 @@ public:
             auto* decision = base.m_decisions[base.m_current_decoded_bit];
             auto* old_metrics = base.m_metrics.get_old();
             auto* new_metrics = base.m_metrics.get_new();
-            bfly(base, &symbols[s], decision, old_metrics, new_metrics);
+            bfly(base, &symbols[s], decision, old_metrics, new_metrics, table);
             if (new_metrics[0] >= base.m_config.renormalisation_threshold) {
                 total_error += sum_error_t(renormalise(new_metrics));
             }
@@ -69,8 +71,8 @@ public:
         return total_error;
     }
 private:
-    static void bfly(Base& base, const int16_t* symbols, decision_bits_t* decision, uint16_t* old_metrics, uint16_t* new_metrics) {
-        const __m128i* v_branch_table = reinterpret_cast<const __m128i*>(base.m_branch_table.data());
+    static void bfly(Base& base, const int16_t* symbols, decision_bits_t* decision, uint16_t* old_metrics, uint16_t* new_metrics, const BranchTable& table) {
+        const __m128i* v_branch_table = reinterpret_cast<const __m128i*>(table.data());
         __m128i* v_old_metrics = reinterpret_cast<__m128i*>(old_metrics);
         __m128i* v_new_metrics = reinterpret_cast<__m128i*>(new_metrics);
         uint16_t* v_decision = reinterpret_cast<uint16_t*>(decision);

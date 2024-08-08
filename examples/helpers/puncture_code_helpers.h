@@ -6,6 +6,7 @@
 #include <vector>
 #include "viterbi/convolutional_encoder.h"
 #include "viterbi/viterbi_decoder_core.h"
+#include "viterbi/viterbi_branch_table.h"
 #include "utility/basic_ops.h"
 
 struct PuncturedDecodeResult {
@@ -17,6 +18,7 @@ struct PuncturedDecodeResult {
 template <typename decoder_t, size_t K, size_t R, typename error_t, typename soft_t, typename input_t>
 PuncturedDecodeResult decode_punctured_symbols(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& decoder, 
+    const ViterbiBranchTable<K,R,soft_t>& branch_table,
     const soft_t unpunctured_symbol_value,
     const input_t* punctured_symbols, const size_t total_symbols,
     const bool* puncture_code, const size_t puncture_code_length,
@@ -48,7 +50,7 @@ PuncturedDecodeResult decode_punctured_symbols(
             index_puncture_code = (index_puncture_code+1) % puncture_code_length;
             index_output_symbol++;
         }
-        res.accumulated_error += decoder_t::template update<uint64_t>(decoder, symbols.data(), R);
+        res.accumulated_error += decoder_t::template update<uint64_t>(decoder, symbols.data(), R, branch_table);
     }
 
     return res;

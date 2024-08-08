@@ -8,6 +8,7 @@
  */
 #pragma once
 #include "./viterbi_decoder_core.h"
+#include "./viterbi_branch_table.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <vector>
@@ -18,6 +19,7 @@ class ViterbiDecoder_Scalar
 {
 public:
     using Base = ViterbiDecoder_Core<constraint_length,code_rate,error_t,soft_t>;    
+    using BranchTable = ViterbiBranchTable<constraint_length,code_rate,soft_t>;
 private:
     using decision_bits_t = typename Base::Decisions::format_t;
     static constexpr size_t K_min = 2;
@@ -26,7 +28,7 @@ public:
 
     /// @brief Given the output symbols of a convolutional code, start determining the lowest error trajectories through the trellis.
     template <typename sum_error_t>
-    static sum_error_t update(Base& base, const soft_t* symbols, const size_t N) {
+    static sum_error_t update(Base& base, const soft_t* symbols, const size_t N, const BranchTable& table) {
         // NOTE: We expect the symbol values to be in the range set by the branch_table
         //       symbols[i] ∈ [soft_decision_low, soft_decision_high]
         //       Otherwise when we calculate inside bfly(...):
@@ -44,7 +46,7 @@ public:
             auto* decision = base.m_decisions[base.m_current_decoded_bit];
             auto* old_metric = base.m_metrics.get_old();
             auto* new_metric = base.m_metrics.get_new();
-            bfly(base, &symbols[i], decision, old_metric, new_metric);
+            bfly(base, &symbols[i], decision, old_metric, new_metric, table);
             if (new_metric[0] >= base.m_config.renormalisation_threshold) {
                 total_error += sum_error_t(renormalise(new_metric));
             }
@@ -55,18 +57,18 @@ public:
     }
 private:
     /// @brief Process R symbols and output 1 decoded bit
-    static void bfly(Base& base, const soft_t* symbols, decision_bits_t* decision, error_t* old_metric, error_t* new_metric) {
+    static void bfly(Base& base, const soft_t* symbols, decision_bits_t* decision, error_t* old_metric, error_t* new_metric, const BranchTable& table) {
         // Guarantee that the decision bits are zeroed out before ORing in our bits
         for (size_t i = 0; i < Base::Decisions::TOTAL_BLOCKS; i++) {
             decision[i] = 0;
         }
 
-        for (size_t curr_state = 0u; curr_state < Base::BranchTable::NUMSTATES; curr_state++) {
+        for (size_t curr_state = 0u; curr_state < BranchTable::NUMSTATES; curr_state++) {
             // Error associated with state given symbols
             error_t total_error = 0u;
             for (size_t i = 0; i < Base::R; i++) {
                 const soft_t sym = symbols[i];
-                const soft_t expected_sym = base.m_branch_table[i][curr_state];
+                const soft_t expected_sym = table[i][curr_state];
                 const soft_t error = expected_sym - sym;
                 const error_t abs_error = error_t(get_abs(error));
                 total_error += abs_error;

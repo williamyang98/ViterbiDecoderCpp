@@ -12,6 +12,7 @@
 #include "viterbi/convolutional_encoder.h"
 #include "viterbi/convolutional_encoder_shift_register.h"
 #include "viterbi/viterbi_decoder_core.h"
+#include "viterbi/viterbi_branch_table.h"
 
 #include "helpers/common_codes.h"
 #include "helpers/simd_type.h"
@@ -60,7 +61,9 @@ void run_tests(
 
 template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t, typename code_t>
 TestResults run_test(
-    ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, ConvolutionalEncoder* enc, 
+    ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec,
+    const ViterbiBranchTable<K,R,soft_t>& branch_table,
+    ConvolutionalEncoder* enc, 
     const soft_t soft_decision_high, const soft_t soft_decision_low,
     const Arguments& args, const TestRange& test_range, 
     const Code<K,R,code_t>& code, const DecodeType decode_type, const SIMD_Type simd_type, const size_t thread_id
@@ -267,10 +270,10 @@ void run_tests(
                     const Decoder_Config<soft_t, error_t> config = config_factory(code.R);
                     auto branch_table = ViterbiBranchTable<K,R,soft_t>(code.G.data(), config.soft_decision_high, config.soft_decision_low);
                     auto enc = ConvolutionalEncoder_ShiftRegister(code.K, code.R, code.G.data());
-                    auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(branch_table, config.decoder_config);
+                    auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(config.decoder_config);
                     const auto test_range = get_test_range(K,R);
                     const auto test_results = run_test<decoder_t>(
-                        vitdec, &enc, 
+                        vitdec, branch_table, &enc, 
                         config.soft_decision_high, config.soft_decision_low,
                         args, test_range, 
                         code, decode_type, simd_type, thread_id
@@ -285,7 +288,9 @@ void run_tests(
 
 template <class decoder_t, size_t K, size_t R, typename soft_t, typename error_t, typename code_t>
 TestResults run_test(
-    ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, ConvolutionalEncoder* enc, 
+    ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec,
+    const ViterbiBranchTable<K,R,soft_t>& branch_table,
+    ConvolutionalEncoder* enc, 
     const soft_t soft_decision_high, const soft_t soft_decision_low,
     const Arguments& args, const TestRange& test_range, 
     const Code<K,R,code_t>& code, const DecodeType decode_type, const SIMD_Type simd_type, const size_t thread_id
@@ -367,7 +372,7 @@ TestResults run_test(
             const size_t total_output_symbols = output_symbols.size();
             vitdec.reset();
             const uint64_t accumulated_error = decoder_t::template update<uint64_t>(
-                vitdec, output_symbols.data(), output_symbols.size());
+                vitdec, output_symbols.data(), output_symbols.size(), branch_table);
             const uint64_t block_error = accumulated_error + uint64_t(vitdec.get_error());
             vitdec.chainback(rx_block_bytes.data(), total_block_bits, 0u);
             const size_t block_bit_errors = get_total_bit_errors(tx_block_bytes.data(), rx_block_bytes.data(), total_block_bytes);

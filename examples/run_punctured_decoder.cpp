@@ -10,6 +10,7 @@
 
 #include "viterbi/convolutional_encoder_lookup.h"
 #include "viterbi/viterbi_decoder_core.h"
+#include "viterbi/viterbi_branch_table.h"
 
 #include "helpers/decode_type.h"
 #include "helpers/simd_type.h"
@@ -88,6 +89,7 @@ size_t run_punctured_encoder(
 template <class decoder_t, typename soft_t, typename error_t>
 uint64_t run_punctured_decoder(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
+    const ViterbiBranchTable<K,R,soft_t>& branch_table,
     const soft_t soft_decision_unpunctured,
     soft_t* output_symbols, const size_t total_output_symbols
 );
@@ -163,7 +165,7 @@ void run_test(const Decoder_Config<soft_t,error_t>& config) {
 
     // decoding
     auto branch_table = ViterbiBranchTable<K,R,soft_t>(G, config.soft_decision_high, config.soft_decision_low);
-    auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(branch_table, config.decoder_config);
+    auto vitdec = ViterbiDecoder_Core<K,R,error_t,soft_t>(config.decoder_config);
     const soft_t unpunctured_value = 0;
 
     vitdec.set_traceback_length(total_data_bits);
@@ -171,7 +173,7 @@ void run_test(const Decoder_Config<soft_t,error_t>& config) {
         SELECT_FACTORY_ITEM(factory_t, simd_type, K, R, {
             using decoder_t = it;
             if constexpr(decoder_t::is_valid) {
-                const uint64_t accumulated_error = run_punctured_decoder<decoder_t>(vitdec, unpunctured_value, output_symbols.data(), total_output_symbols);
+                const uint64_t accumulated_error = run_punctured_decoder<decoder_t>(vitdec, branch_table, unpunctured_value, output_symbols.data(), total_output_symbols);
                 vitdec.chainback(rx_input_bytes.data(), total_data_bits, 0u);
                 const uint64_t traceback_error = accumulated_error + uint64_t(vitdec.get_error());
                 const size_t total_errors = get_total_bit_errors(tx_input_bytes.data(), rx_input_bytes.data(), total_data_bytes);
@@ -248,6 +250,7 @@ size_t run_punctured_encoder(
 template <class decoder_t, typename soft_t, typename error_t>
 uint64_t run_punctured_decoder(
     ViterbiDecoder_Core<K,R,error_t,soft_t>& vitdec, 
+    const ViterbiBranchTable<K,R,soft_t>& branch_table,
     const soft_t soft_decision_unpunctured,
     soft_t* output_symbols, const size_t total_output_symbols
 ) {
@@ -258,7 +261,7 @@ uint64_t run_punctured_decoder(
     uint64_t accumulated_error = 0;
 
     res = decode_punctured_symbols<decoder_t>(
-        vitdec, soft_decision_unpunctured,
+        vitdec, branch_table, soft_decision_unpunctured,
         output_symbols_buf.data(), output_symbols_buf.size(), 
         PI_16, PI_total_bits, 
         PI_total_bits*R*PI_16_total_count);
@@ -266,7 +269,7 @@ uint64_t run_punctured_decoder(
     output_symbols_buf = output_symbols_buf.subspan(res.index_punctured_symbol);
 
     res = decode_punctured_symbols<decoder_t>(
-        vitdec, soft_decision_unpunctured,
+        vitdec, branch_table, soft_decision_unpunctured,
         output_symbols_buf.data(), output_symbols_buf.size(), 
         PI_15, PI_total_bits, 
         PI_total_bits*R*PI_15_total_count);
@@ -274,7 +277,7 @@ uint64_t run_punctured_decoder(
     output_symbols_buf = output_symbols_buf.subspan(res.index_punctured_symbol);
 
     res = decode_punctured_symbols<decoder_t>(
-        vitdec, soft_decision_unpunctured,
+        vitdec, branch_table, soft_decision_unpunctured,
         output_symbols_buf.data(), output_symbols_buf.size(), 
         PI_X, 24, 
         24);

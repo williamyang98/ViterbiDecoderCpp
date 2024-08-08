@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
     std::vector<uint8_t> rx_input_bytes;
     rx_input_bytes.resize(total_input_bytes);
     auto branch_table = ViterbiBranchTable<K,R,int16_t>(G, soft_decision_high, soft_decision_low);
-    auto vitdec = ViterbiDecoder_Core<K,R,uint16_t,int16_t>(branch_table, decoder_config);
+    auto vitdec = ViterbiDecoder_Core<K,R,uint16_t,int16_t>(decoder_config);
 
     // NOTE: Up to you to choose your desired decoder type
     // using Decoder = typename ViterbiDecoder_AVX_u16<K,R>;
@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
 
     vitdec.set_traceback_length(total_input_bits);
     vitdec.reset();
-    const uint64_t accumulated_error = Decoder::template update<uint64_t>(vitdec, output_symbols.data(), output_symbols.size());
+    const uint64_t accumulated_error = Decoder::template update<uint64_t>(vitdec, output_symbols.data(), output_symbols.size(), branch_table);
     const uint64_t error = accumulated_error + uint64_t(vitdec.get_error());
     vitdec.chainback(rx_input_bytes.data(), total_input_bits);
     printf("error_metric=%" PRIu64 "\n", error);
