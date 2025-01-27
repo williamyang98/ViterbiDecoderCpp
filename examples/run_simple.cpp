@@ -68,9 +68,9 @@ int main(int argc, char** argv) {
     auto vitdec = ViterbiDecoder_Core<K,R,uint16_t,int16_t>(branch_table, decoder_config);
 
     // NOTE: Up to you to choose your desired decoder type
-    // using Decoder = typename ViterbiDecoder_AVX_u16<K,R>;
-    // using Decoder = typename ViterbiDecoder_SSE_u16<K,R>;
-    // using Decoder = typename ViterbiDecoder_NEON_u16<K,R>;
+    // using Decoder = ViterbiDecoder_AVX_u16<K,R>;
+    // using Decoder = ViterbiDecoder_SSE_u16<K,R>;
+    // using Decoder = ViterbiDecoder_NEON_u16<K,R>;
     using Decoder = ViterbiDecoder_Scalar<K,R,uint16_t,int16_t>;
 
     vitdec.set_traceback_length(total_input_bits);
