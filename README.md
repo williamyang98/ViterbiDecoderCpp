@@ -78,3 +78,9 @@ Using the 16bit and 8bit based intrinsics implementations as a guide you can mak
 # Useful alternatives
 - [Spiral project](https://www.spiral.net/software/viterbi.html) aims to auto-generate high performance code for any input parameters
 - [ka9q/libfec](https://github.com/ka9q/libfec) is Phil Karn's original C implementation
+
+# Benchmarks
+Benchmarks are available in a separate repository located [here](https://github.com/williamyang98/ka9q_viterbi_comparison)
+
+![Symbol update perforrmance](https://raw.githubusercontent.com/williamyang98/ka9q_viterbi_comparison/refs/heads/main/docs/plot_symbol_update.png)
+![Chainback performance](https://raw.githubusercontent.com/williamyang98/ka9q_viterbi_comparison/refs/heads/main/docs/plot_chainback.png)
