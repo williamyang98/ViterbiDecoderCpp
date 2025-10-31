@@ -226,14 +226,8 @@ TestRange get_test_range(const size_t K, const size_t R) {
     const size_t error_correcting_capability = K*R;
     size_t base_total_bits = size_t(1e9); 
     TestRange range;
-    range.EbNo_dB_initial = -std::ceil(std::pow(float(error_correcting_capability), 0.8f));
-    // TODO: Figure out a better way to calculate this that generalises
-    if (K >= 9) {
-        range.EbNo_dB_initial = -17.0f;
-        base_total_bits = size_t(1e10);
-    }
-    // Measure the sharp cutoff of code with high error correction ability
-    range.EbNo_dB_step = (error_correcting_capability > 20) ? 0.5f : 1.0f;
+    range.EbNo_dB_initial = 0.0f;
+    range.EbNo_dB_step = 0.5f;
     range.maximum_generated_bits = base_total_bits / runtime_scale;
     return range;
 }
@@ -323,9 +317,9 @@ TestResults run_test(
     std::mt19937 rand_engine{(unsigned int)(args.random_seed)};
     for (size_t curr_point = 0; ; curr_point++) {
         const float EbNo_dB = test_range.EbNo_dB_initial + float(curr_point)*test_range.EbNo_dB_step;
-        const float snr_dB = EbNo_dB + 10.0f*std::log10(float(R));
+        const float EsNo_dB = EbNo_dB - 10.0f*std::log10(float(R));
         // E(X^2) = Var(X) + [E(X)]^2 = Var(X), since E(X) = 0
-        const float noise_variance = std::pow(10.0f, -snr_dB/10.0f);
+        const float noise_variance = std::pow(10.0f, -(EsNo_dB+3.0f)/10.0f); // 3dB for real signal
         const float noisy_signal_energy = 1.0f + noise_variance;
         const float noisy_signal_norm = 1.0f/std::sqrt(noisy_signal_energy);
         std::normal_distribution<float> rand_norm_dist(0.0f, std::sqrt(noise_variance)); // takes sigma not sigma^2
